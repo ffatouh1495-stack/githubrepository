@@ -1,12 +1,29 @@
-# Crash Detection & Emergency Alert App — Specification (Draft v0.2)
+# LifeLine Auto — Crash Detection & Emergency Alert App Specification (Draft v0.3)
 
 ## 0. Decisions Locked In
 
+- **Product name**: LifeLine Auto.
 - **Platform**: Android first (v1). iOS is a future phase — see §6.
+- **Launch region**: United States only, to start. This keeps the emergency-
+  services integration scoped to 911/NG911 dispatch infrastructure (no
+  need to handle other countries' emergency numbers, carrier SMS
+  behavior, or non-US dispatch-data providers in v1). See §4 and §8.
 - **Emergency services notification**: integrate with a third-party
   crash-dispatch API (RapidSOS-style) that pushes structured crash data to
   911 dispatch centers, rather than autodialing or relying on a native
   dialer handoff. See §4.
+- **App behavior outside of a crash**: purely dormant. No live trip
+  tracking/sharing, no "share my drive" feature, no background logging
+  visible to the user or contacts. The app arms itself for crash detection
+  while driving but produces zero user-facing activity, notifications, or
+  contact-visible data until a crash is actually detected. See §2 and §9.
+- **Liability**: LifeLine Auto accepts legal responsibility if the app
+  fails to detect a real crash, or if it falsely alerts a crash. This is a
+  significant business/legal commitment (it affects insurance needs,
+  Terms of Service language, and the vendor contract with the dispatch-
+  data provider) — flagged in §8 as something to formalize with counsel
+  and an insurance carrier (e.g., E&O / product liability coverage) before
+  launch, but recorded here as the intended policy.
 - **Project stage**: concept/spec only right now — no app code yet. This
   document is the artifact being iterated on.
 
@@ -32,11 +49,12 @@ help still gets called.
 - Run reliably in the background on a phone mounted in a moving vehicle,
   respecting each OS's background execution limits and battery constraints.
 
-**Non-Goals (for v1, unless you say otherwise)**
+**Non-Goals**
 - Replacing a dedicated vehicle telematics/OBD-II crash system.
 - Detecting minor fender-benders / low-speed parking-lot bumps as "severe."
-- Being a full navigation or trip-logging product (though trip context helps
-  detection and may be a natural adjacent feature).
+- Any live trip tracking, drive-sharing, or navigation features. LifeLine
+  Auto is intentionally dormant/invisible outside of a crash event — this
+  is a firm product decision, not just a v1 scope cut (see §0).
 
 ## 3. Core Detection Pipeline
 
@@ -87,12 +105,12 @@ help still gets called.
    at impact, address (reverse geocoded), device battery level, user's
    emergency medical info if provided (blood type, allergies — optional
    profile field).
-3. **Notify emergency services** (decided: third-party dispatch API):
-   - Integrate with a service in the RapidSOS family (or regional
-     equivalent) that accepts structured crash telemetry (location,
-     timestamp, speed at impact, confidence tier) and pushes it into the
-     911 dispatch center's existing data pipeline (NG911), rather than the
-     app placing a call itself.
+3. **Notify emergency services** (decided: third-party dispatch API, US-only):
+   - Integrate with a US-focused dispatch-data provider in the RapidSOS
+     family that accepts structured crash telemetry (location, timestamp,
+     speed at impact, confidence tier) and pushes it into the local 911
+     dispatch center's existing data pipeline (NG911), rather than the app
+     placing a call itself.
    - This means the *dispatch center's own call-taker/system* is the one
      that decides whether/how to route a unit — the app's job is to hand
      off clean, structured, trustworthy data plus (if technically
@@ -103,11 +121,12 @@ help still gets called.
        a B2B integration, not a public API key you drop into a mobile
        app — plan for a vetting/onboarding process with the vendor).
      - A fallback path for when the provider has no coverage in the
-       user's location (some regions/counties aren't yet on NG911) — fall
+       user's location (some US counties aren't yet on NG911) — fall
        back to notifying contacts + surfacing a one-tap "Call 911" button
        to the user/bystanders.
-     - Legal review of the integration terms (see §8, liability question
-       still open).
+     - Legal review of the integration terms, and coordination with
+       LifeLine Auto's insurance carrier given the liability position in
+       §0.
 4. **Notify emergency contacts**: SMS + push notification (if they also have
    the app) with:
    - "[Name] may have been in a car accident."
@@ -196,50 +215,46 @@ help still gets called.
 
 ## 8. Open Questions (remaining)
 
-Platform, dispatch-integration approach, and project stage are decided
-(§0). Still need your input on:
+Product name, platform, launch region, dispatch-integration approach,
+dormant-until-crash behavior, project stage, and liability position are
+all decided (§0). Still need your input on:
 
-1. Do you have an existing brand/product name, design assets, or is this
-   fully greenfield?
-2. Any target regions/countries for launch? This matters a lot now that
-   we've committed to a dispatch-data-API approach — coverage is
-   regional/county-by-county (NG911 rollout is not nationwide/global), so
-   the launch region determines whether the primary emergency-services
-   path even has coverage on day one, versus needing the contacts-only
-   fallback more often initially.
-3. Which specific dispatch-data provider do you want to pursue (e.g.
-   RapidSOS specifically, or are we open to alternatives/regional
-   equivalents)? This is a vendor/business decision (contracts, cost,
-   onboarding timeline) as much as a technical one, and it's on the
-   critical path for §4.
-4. Should the app also do live trip tracking/sharing outside of crash
-   scenarios (e.g., "share my drive" like Life360), or stay purely dormant
-   until a crash?
-5. Who is legally responsible if the app fails to detect a real crash, or
-   falsely alerts the dispatch API repeatedly? False-alarm volume is a
-   real concern for dispatch centers/providers and likely affects vendor
-   contract terms — worth involving counsel before committing to a
-   provider.
-6. Budget/timeline and team size — affects how ambitious v1's detection
+1. Which specific US dispatch-data provider do you want to pursue (e.g.
+   RapidSOS specifically, or are we open to competitors/alternatives)?
+   This is a vendor/business decision (contracts, cost, onboarding
+   timeline) as much as a technical one, and it's on the critical path
+   for §4.
+2. Given the liability position in §0, do you have (or plan to secure)
+   product liability / E&O insurance and counsel before launch? This
+   should happen in parallel with vendor selection, not after.
+3. Budget/timeline and team size — affects how ambitious v1's detection
    logic should be (simple threshold-based rules vs. an ML classifier from
    day one).
+4. Design assets/visual identity for LifeLine Auto — do you have a logo,
+   color palette, or app-icon direction yet, or is that still open?
 
 ## 9. Suggested MVP (v0.1) Scope
 
 To de-risk this, a leaner first version, consistent with the decisions in
 §0:
-- **Android only.**
+- **Android only, United States only.**
 - Threshold-based detection (acceleration spike + speed drop + gyroscope
   irregularity), no ML yet — mic-based corroboration can follow once the
   core pipeline is validated.
 - Cancellation countdown UI ("I'm OK" / PIN or biometric cancel).
-- On confirmed crash: send structured crash data to the chosen
+- On confirmed crash: send structured crash data to the chosen US
   dispatch-data API integration, and simultaneously SMS/push-notify
   emergency contacts (via a backend like Twilio) with a location link.
 - One-tap manual "Call 911" button surfaced post-alert as a fallback for
   the user or a bystander — never a silent autodial.
+- No live trip tracking/sharing anywhere in scope, now or later — the app
+  stays dormant and invisible until a crash is detected, per §0.
 - Manual "start/stop drive" toggle rather than automatic trip detection,
-  to start; iterate toward automatic trip detection in v2+.
+  to start; iterate toward automatic trip detection in v2+ (still without
+  exposing any trip data to contacts or a UI — detection state stays
+  internal).
 - Get the dispatch-provider relationship (vendor selection, contract,
-  sandbox/test access) moving early — it's likely the longest lead-time
-  item and gates end-to-end testing of the core value proposition.
+  sandbox/test access) and the insurance/legal groundwork for the §0
+  liability position moving early — both are likely long-lead-time items
+  that gate end-to-end testing and safe launch of the core value
+  proposition.
