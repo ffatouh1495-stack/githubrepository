@@ -1,4 +1,14 @@
-# Crash Detection & Emergency Alert App — Specification (Draft v0.1)
+# Crash Detection & Emergency Alert App — Specification (Draft v0.2)
+
+## 0. Decisions Locked In
+
+- **Platform**: Android first (v1). iOS is a future phase — see §6.
+- **Emergency services notification**: integrate with a third-party
+  crash-dispatch API (RapidSOS-style) that pushes structured crash data to
+  911 dispatch centers, rather than autodialing or relying on a native
+  dialer handoff. See §4.
+- **Project stage**: concept/spec only right now — no app code yet. This
+  document is the artifact being iterated on.
 
 ## 1. Overview
 
@@ -77,18 +87,27 @@ help still gets called.
    at impact, address (reverse geocoded), device battery level, user's
    emergency medical info if provided (blood type, allergies — optional
    profile field).
-3. **Notify emergency services**:
-   - Needs a decision: can the app call 911/local equivalent directly (see
-     Open Questions §8), or does it hand off to the phone's native dialer
-     with pre-filled info, or route through a third-party ERS
-     (emergency-response-service) API/human dispatch center (similar to how
-     Apple Watch Crash Detection / Android Car Crash Detection route through
-     a service, or how ADT/RapidSOS-style APIs work)?
-   - Recommendation: integrate with a service like RapidSOS (US) or an
-     equivalent regional emergency-data platform, which can push structured
-     crash data directly to 911 dispatch centers, rather than trying to
-     "auto-dial 911" from the app (many countries restrict or complicate
-     autodialing emergency numbers).
+3. **Notify emergency services** (decided: third-party dispatch API):
+   - Integrate with a service in the RapidSOS family (or regional
+     equivalent) that accepts structured crash telemetry (location,
+     timestamp, speed at impact, confidence tier) and pushes it into the
+     911 dispatch center's existing data pipeline (NG911), rather than the
+     app placing a call itself.
+   - This means the *dispatch center's own call-taker/system* is the one
+     that decides whether/how to route a unit — the app's job is to hand
+     off clean, structured, trustworthy data plus (if technically
+     supported by the provider) an open audio channel or callback number
+     so dispatch can attempt to reach the user directly.
+   - Practical requirements this creates:
+     - A backend account/contract with the dispatch-data provider (this is
+       a B2B integration, not a public API key you drop into a mobile
+       app — plan for a vetting/onboarding process with the vendor).
+     - A fallback path for when the provider has no coverage in the
+       user's location (some regions/counties aren't yet on NG911) — fall
+       back to notifying contacts + surfacing a one-tap "Call 911" button
+       to the user/bystanders.
+     - Legal review of the integration terms (see §8, liability question
+       still open).
 4. **Notify emergency contacts**: SMS + push notification (if they also have
    the app) with:
    - "[Name] may have been in a car accident."
@@ -122,34 +141,36 @@ help still gets called.
 
 ## 6. Platform Constraints (critical design drivers)
 
-**Android**
-- Foreground service with persistent notification required to reliably keep
-  sensors + GPS + mic running in the background.
-- Must guide users to disable battery optimization / "unrestricted battery"
-  for the app (manufacturer-specific quirks: Samsung, Xiaomi, Huawei
-  aggressively kill background apps).
-- Can potentially auto-dial emergency numbers with `CALL_PHONE` permission
-  (Android allows apps to call emergency numbers directly, unlike iOS).
+**Android (v1 target)**
+- Foreground service with a persistent (but low-key) notification is
+  required to reliably keep sensors + GPS + mic running in the background
+  for the whole drive.
+- Must guide users through disabling battery optimization / granting
+  "unrestricted battery" for the app — manufacturer-specific quirks
+  (Samsung, Xiaomi, Huawei, OnePlus all have their own aggressive
+  background-kill behavior on top of stock Android) will need a per-OEM
+  onboarding help flow, since this is a common failure point for this
+  category of app.
+- Android permits apps to place emergency calls directly with
+  `CALL_PHONE`, but per the decision in §0/§4 we are *not* using that path
+  for v1 — the dispatch-API integration is the primary channel, with a
+  one-tap manual "Call 911" button as a user-triggered fallback (using the
+  native dialer, not silent autodial).
+- Needs foreground-service type declarations (`location`, `microphone`,
+  `connectedDevice` as applicable) per current Android background-service
+  requirements, plus a clear runtime permission rationale flow for each.
 
-**iOS**
+**iOS (future phase, not v1)**
 - No true persistent background microphone/accelerometer sampling at full
-  rate indefinitely — need to use significant-location-change, Core Motion
-  background modes, and possibly the `background audio` or `location`
-  background modes creatively; continuous raw mic access in background is
+  rate indefinitely — background modes and always-on raw mic access are
   heavily restricted.
-- Cannot programmatically dial 911 from a third-party app — can only present
-  the system call UI (`tel://`) which still requires user confirmation, or
-  integrate with CallKit/an emergency-services API/data provider instead of
-  direct dialing.
-- Apple already ships Crash Detection (iPhone 14+) at the OS level — worth
-  clarifying how this app differentiates or whether it should detect on
-  older devices / Android where OS-level crash detection doesn't exist.
-
-These constraints likely mean **the sound/mic-based signal and always-on
-raw sensor sampling are realistically an Android-first capability**, with
-iOS relying more on Core Motion + location fusion and possibly integrating
-with Apple's own crash detection signal if exposed via API (it currently
-isn't, publicly). This is an important open question — see §8.
+- Cannot programmatically dial 911 from a third-party app.
+- Apple already ships OS-level Crash Detection (iPhone 14+), which is
+  worth revisiting once we get to iOS — the app may differentiate via the
+  dispatch-API integration and multi-contact alerting rather than trying
+  to out-detect the OS.
+- Parking this until Android v1 is validated; revisit sensor/permission
+  APIs at that time since iOS's background capabilities evolve yearly.
 
 ## 7. Non-Functional Requirements
 
@@ -173,42 +194,52 @@ isn't, publicly). This is an important open question — see §8.
   partnering with a crash-test data source, or referencing published crash
   accelerometry research).
 
-## 8. Open Questions (need your input before detailed design)
+## 8. Open Questions (remaining)
 
-I'll ask these as structured questions next, but listing them here for the
-spec's completeness:
+Platform, dispatch-integration approach, and project stage are decided
+(§0). Still need your input on:
 
-1. Platform priority: iOS, Android, or both from v1?
-2. How should "notify emergency services" actually work — direct 911 dial,
-   handoff to native dialer, or third-party dispatch-data API (e.g.
-   RapidSOS-style)? This has real legal/liability implications.
-3. What's the MVP scope — just crash detection + contact alerting, or do you
-   also want emergency services integration in v1?
-4. Do you have existing brand/product name, design assets, or is this
-   greenfield?
-5. Any target regions/countries (affects emergency number, carrier SMS
-   fallback, regulations)?
-6. Should the app also do live trip tracking/sharing outside of crash
-   scenarios (e.g., "share my drive" like Life360), or purely dormant until
-   a crash?
-7. Who is legally responsible if the app fails to detect a real crash, or
-   falsely alerts services repeatedly (false-alarm liability with 911
-   dispatch is a real regulatory concern in some jurisdictions)?
-8. Budget/timeline and team (solo dev, small team) — affects how ambitious
-   v1 should be (e.g., ML crash classifier vs. simple thresholding first).
+1. Do you have an existing brand/product name, design assets, or is this
+   fully greenfield?
+2. Any target regions/countries for launch? This matters a lot now that
+   we've committed to a dispatch-data-API approach — coverage is
+   regional/county-by-county (NG911 rollout is not nationwide/global), so
+   the launch region determines whether the primary emergency-services
+   path even has coverage on day one, versus needing the contacts-only
+   fallback more often initially.
+3. Which specific dispatch-data provider do you want to pursue (e.g.
+   RapidSOS specifically, or are we open to alternatives/regional
+   equivalents)? This is a vendor/business decision (contracts, cost,
+   onboarding timeline) as much as a technical one, and it's on the
+   critical path for §4.
+4. Should the app also do live trip tracking/sharing outside of crash
+   scenarios (e.g., "share my drive" like Life360), or stay purely dormant
+   until a crash?
+5. Who is legally responsible if the app fails to detect a real crash, or
+   falsely alerts the dispatch API repeatedly? False-alarm volume is a
+   real concern for dispatch centers/providers and likely affects vendor
+   contract terms — worth involving counsel before committing to a
+   provider.
+6. Budget/timeline and team size — affects how ambitious v1's detection
+   logic should be (simple threshold-based rules vs. an ML classifier from
+   day one).
 
 ## 9. Suggested MVP (v0.1) Scope
 
-To de-risk this, a leaner first version:
-- Android-first (fewer background restrictions) or iOS using Core Motion +
-  location only (skip mic in v1 to sidestep iOS mic-background limits).
-- Threshold-based detection (acceleration spike + speed drop), no ML yet.
-- Cancellation countdown UI.
-- SMS-based emergency contact alerting (via a backend like Twilio) with a
-  location link — no direct 911 integration yet (rely on contacts to call
-  911 if needed, or present a one-tap "Call 911" button post-alert instead
-  of auto-dialing).
+To de-risk this, a leaner first version, consistent with the decisions in
+§0:
+- **Android only.**
+- Threshold-based detection (acceleration spike + speed drop + gyroscope
+  irregularity), no ML yet — mic-based corroboration can follow once the
+  core pipeline is validated.
+- Cancellation countdown UI ("I'm OK" / PIN or biometric cancel).
+- On confirmed crash: send structured crash data to the chosen
+  dispatch-data API integration, and simultaneously SMS/push-notify
+  emergency contacts (via a backend like Twilio) with a location link.
+- One-tap manual "Call 911" button surfaced post-alert as a fallback for
+  the user or a bystander — never a silent autodial.
 - Manual "start/stop drive" toggle rather than automatic trip detection,
-  to start.
-- Iterate toward automatic trip detection, mic-based corroboration, and
-  emergency-service API integration in v2+.
+  to start; iterate toward automatic trip detection in v2+.
+- Get the dispatch-provider relationship (vendor selection, contract,
+  sandbox/test access) moving early — it's likely the longest lead-time
+  item and gates end-to-end testing of the core value proposition.
