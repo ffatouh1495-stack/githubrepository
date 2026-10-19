@@ -1,112 +1,139 @@
 """
 Mars atmosphere + wind block for the POST2 input deck.
 
-STATUS: PENDING on two things, both required before any real run:
+STATUS: syntax CONFIRMED against the POST2 v5.0.0 manual (see citations
+below). The only remaining blocker is DATA: config.MARS_ATMOSPHERE_CSV
+(mars_atmosphere_gale.csv, 146-row Mars-GRAM table) must actually exist
+on disk. config.MARS_ATMOSPHERE_READY auto-detects this file's presence.
 
-1. DATA: config.MARS_ATMOSPHERE_CSV (mars_atmosphere_gale.csv) must exist.
-   Per spec this is Mars-GRAM 2010 output, 146 rows, 1 km steps, -5000 m
-   to 140000 m (areoid-referenced), columns Altitude(m), Pressure(Pa),
-   Temperature(K), Speed of Sound(m/s), Density(kg/m^3), [Mol Weight,
-   Gas Law Error -- ignored]. Not yet supplied by the author.
+Confirmed syntax (manual section 6.a.4 unless noted):
+  - NPC(5) = 1: general/tabular atmosphere, fill PREST (pressure),
+    ATEMT (temperature), CST (speed of sound), DENST (density), each
+    indexed by GDALT (geodetic altitude, ft -- IOFLAG=0/English, per the
+    manual's section 4.a unit rules: input units cannot be mixed within a
+    problem). NPC(5)=7 is deprecated (needs natural-log tables) -- not used.
+  - Table syntax (section 6.d): `NAME = "label" monovar GDALT 0 <interp>
+    xtrap alt1 val1 alt2 val2 ...` -- log_inp for density/pressure (strictly
+    positive, true here), lin_inp for temperature/speed of sound. Table
+    size "limited only by swap space" -- 146 points is fine, not thinned.
+    This punctuation (double-quoted label, space-separated, no commas) is
+    the manual's own example; kept as-is here rather than mixed with the
+    comma/single-quote style already validated for cdt/clt in Examples
+    1A/1B, since that style hasn't been confirmed for these tables.
+  - ATMOSK(1)/(2): used to compute CS = SQRT(ATMOSK(1) x ATEM) and
+    DENS = ATMOSK(2) x PRES / ATEM when using a table atmosphere. Both
+    default to 1.0; the manual doesn't say what happens when CST/DENST are
+    ALSO supplied directly. Per spec: supply CST and DENST explicitly,
+    leave ATMOSK at 1.0, and verify in the test run that printed DENS/CS
+    at 10/40/80 km match the table (vacuum-check #1) -- do not tune
+    ATMOSK to force a match if they don't.
+  - NPC(6) = 1: winds from VWT (speed, ft/s), AZW_T (azimuth, deg),
+    VWWT (vertical component, positive downward), each vs. GDALT, same
+    table syntax as atmosphere. NPC(6)=3 differs only in vector
+    interpolation, irrelevant for a constant wind -- NPC(6)=1 used.
+    AZWB (azimuth bias) defaults to 180.0, under which AZW_T is
+    METEOROLOGICAL: "an azimuth value of zero in the wind table represents
+    a wind blowing from the north." AZWB is left at its default; a 0 deg
+    AZW_T therefore means the 10 m/s wind blows FROM the north (toward the
+    south). If the author meant a different direction, only
+    config.WIND_DIRECTION_DEG needs to change.
+  - Mars-GRAM's own mean winds are NOT used (per spec) -- VWT/AZW_T come
+    only from config.WIND_SPEED_MPS/WIND_DIRECTION_DEG, never the CSV.
 
-2. SYNTAX: the exact POST2 input syntax, confirmed against the manual, for:
-   a. NPC(5) = 1 (general/tabular atmosphere switch) and the four table
-      names POST2 expects for pressure/temperature/speed-of-sound/density
-      (spec names them PREST, ATEMT, CST, DENST -- confirm exact keyword
-      spelling, units, and whether the independent altitude variable
-      needs to be in feet rather than meters), and the table-size limit
-      (146 points -- if POST2's table limit is smaller, STOP and report
-      to the author; do not silently thin or truncate).
-   b. How ATMOSK(1) and ATMOSK(2) interact with a table atmosphere (spec:
-      "With a table atmosphere they should be left at 1.0, but verify").
-   c. NPC(6) (wind switch) and the VWT (wind speed vs. altitude) / AZW_T
-      (wind azimuth vs. altitude) table names/syntax, and the azimuth
-      convention (blows-toward vs. blows-from; what 0 deg references).
-
-Why this is its own module and a hard gate (raises rather than guessing):
-Example 1A silently produced zero density instead of an error when the
-Earth atmosphere flag was left unset -- the run "succeeded" with garbage
-physics. The spec is explicit that POST2 defaults to Earth/no-atmosphere
-and that this failure mode is the single biggest risk in Phase 0 ("A run
-with the atmosphere switch left at its default is a vacuum run and its
-results are meaningless"). Guessing wrong on unit (feet vs. meters) or
-table-name syntax here risks the same silent failure, 32 times over.
-
-Once both the CSV and the manual-confirmed syntax are in hand:
-  1. Place the CSV at config.MARS_ATMOSPHERE_CSV
-  2. Fill in build_environment_block() below with the real NPC(5)=1 /
-     PREST/ATEMT/CST/DENST / NPC(6) / VWT / AZW_T lines, reading the CSV
-     via _load_atmosphere_table()
-  3. Set config.MARS_ATMOSPHERE_READY = True
-  4. Record ATMOSK(1)/(2) behavior, the azimuth convention, and the
-     table-size check result in README.md (spec requirement)
+Unit conversions for the CSV use the spec's own stated factors exactly
+(not independently-derived precise SI conversions), per spec instruction
+to "do the conversion in code from the CSV": altitude x3.28084 = ft,
+pressure x0.0208854 = lb/ft^2, temperature x1.8 = deg R, speed of sound
+x3.28084 = ft/s, density x0.00194032 = slug/ft^3.
 """
 
 import csv
-from typing import List, Tuple
+import os
+from typing import Dict, List
 
 import config
 
 
 class MarsEnvironmentNotReady(RuntimeError):
-    """Raised when a caller tries to build an input deck before the Mars
-    atmosphere/wind syntax and data have been confirmed and filled in."""
+    """Raised when the atmosphere CSV isn't present yet."""
 
 
-def _load_atmosphere_table() -> List[Tuple[float, float, float, float, float]]:
-    """Read config.MARS_ATMOSPHERE_CSV, return rows of
-    (altitude_m, pressure_pa, temperature_k, speed_of_sound_mps, density_kgm3).
-    Reads the CSV directly (never a PDF/spreadsheet copy), per spec, and
-    uses only the first five columns (Mol Weight / Gas Law Error ignored).
-    """
+def _load_atmosphere_table_english() -> List[Dict[str, float]]:
+    """Read config.MARS_ATMOSPHERE_CSV (Altitude_m, Pressure_Pa,
+    Temperature_K, SpeedOfSound_mps, Density_kgm3, [MolWeight, GasLawError
+    -- ignored]), convert to English units using the spec's own stated
+    factors, sorted by altitude."""
     rows = []
     with open(config.MARS_ATMOSPHERE_CSV, newline="") as f:
         reader = csv.reader(f)
-        header = next(reader)
+        next(reader)  # header
         for row in reader:
-            alt, pres, temp, cs, dens = (float(x) for x in row[:5])
-            rows.append((alt, pres, temp, cs, dens))
-    rows.sort(key=lambda r: r[0])
+            alt_m, pres_pa, temp_k, cs_mps, dens_kgm3 = (float(x) for x in row[:5])
+            rows.append({
+                "alt_ft": alt_m * config.SPEC_M_TO_FT,
+                "pres_lbft2": pres_pa * config.SPEC_PA_TO_LBFT2,
+                "temp_r": temp_k * config.SPEC_K_TO_RANKINE,
+                "cs_fts": cs_mps * config.SPEC_M_TO_FT,  # same factor, m/s -> ft/s
+                "dens_slugft3": dens_kgm3 * config.SPEC_KGM3_TO_SLUGFT3,
+            })
+    rows.sort(key=lambda r: r["alt_ft"])
     if len(rows) != 146:
         raise MarsEnvironmentNotReady(
             f"Expected 146 rows in {config.MARS_ATMOSPHERE_CSV} per spec, got {len(rows)}. "
-            "Stop and report to the author rather than silently proceeding."
+            "Stop and report to the author rather than silently proceeding (do not thin the table)."
         )
     return rows
+
+
+def _format_table(name: str, alt_value_pairs, interp: str) -> str:
+    """Manual-confirmed table syntax: NAME = "label" monovar GDALT 0
+    <interp> xtrap alt1 val1 alt2 val2 ... (space-separated, no commas,
+    double-quoted label). Wrapped across lines for readability only --
+    whitespace/newlines are equivalent to POST2's free-form parser."""
+    header = f'{name} = "{name}" monovar GDALT 0 {interp} xtrap'
+    tokens = [f"{alt:.2f} {val:.6g}" for alt, val in alt_value_pairs]
+    lines = [header]
+    for i in range(0, len(tokens), 4):
+        lines.append(" ".join(tokens[i:i + 4]))
+    return "\n".join(lines)
 
 
 def build_environment_block(wind_speed_mps: float, wind_direction_deg: float) -> List[str]:
     """
     Return the list of POST2 input lines for the Mars atmosphere + wind
-    model, parameterized by wind speed/direction.
-
-    Raises MarsEnvironmentNotReady until this function is filled in with
-    manual-confirmed syntax AND config.MARS_ATMOSPHERE_CSV exists.
+    model. Raises MarsEnvironmentNotReady if the atmosphere CSV isn't
+    present at config.MARS_ATMOSPHERE_CSV yet.
     """
-    if not config.MARS_ATMOSPHERE_READY:
+    if not os.path.exists(config.MARS_ATMOSPHERE_CSV):
         raise MarsEnvironmentNotReady(
-            "Mars atmosphere/wind syntax has not been confirmed yet, and/or "
-            f"{config.MARS_ATMOSPHERE_CSV} has not been supplied. Fill in "
-            "mars_environment.build_environment_block() per the module "
-            "docstring, set config.MARS_ATMOSPHERE_READY = True, then "
-            "re-run. Refusing to generate input decks with unverified "
-            "atmosphere physics -- see the module docstring for why."
+            f"{config.MARS_ATMOSPHERE_CSV} not found. The atmosphere/wind "
+            "table SYNTAX is confirmed (see this module's docstring) -- the "
+            "only thing missing is the data file itself. Place the "
+            "146-row Mars-GRAM CSV (Gale Crater) at that path and re-run."
         )
 
-    # Placeholder body -- replaced once syntax is confirmed. Sketch of what
-    # this will look like (table NAMES/UNITS/independent-variable-units
-    # are all unconfirmed guesses below, do not use as-is):
-    #
-    # table = _load_atmosphere_table()
-    # lines = [
-    #     "npc(5) = 1,           // general/tabular atmosphere",
-    #     "atmosk(1) = 1.0,  atmosk(2) = 1.0,   // PENDING verify",
-    #     "dtalt = ... ",  # altitude independent-variable table, units TBD
-    #     "<PREST-equivalent keyword> = 'prest', monovar, <alt-var>, 0, lin_inp, xtrap,",
-    #     *(f"{alt}, {pres}," for alt, pres, temp, cs, dens in table),
-    #     ... same pattern for ATEMT, CST, DENST ...
-    #     "npc(6) = 1,           // PENDING verify: wind switch",
-    #     f"vwt = 'vwt', constant, 0, {wind_speed_mps},   // PENDING verify",
-    #     f"azw_t = 'azw_t', constant, 0, {wind_direction_deg},   // PENDING verify azimuth convention",
-    # ]
-    raise NotImplementedError
+    table = _load_atmosphere_table_english()
+    prest_pairs = [(r["alt_ft"], r["pres_lbft2"]) for r in table]
+    atemt_pairs = [(r["alt_ft"], r["temp_r"]) for r in table]
+    cst_pairs = [(r["alt_ft"], r["cs_fts"]) for r in table]
+    denst_pairs = [(r["alt_ft"], r["dens_slugft3"]) for r in table]
+
+    wind_speed_fts = wind_speed_mps * config.SPEC_M_TO_FT
+    alt_min_ft = table[0]["alt_ft"]
+    alt_max_ft = table[-1]["alt_ft"]
+
+    lines = [
+        "npc(5) = 1,           // general/tabular atmosphere (CONFIRMED, manual 6.a.4)",
+        "atmosk(1) = 1.0,  atmosk(2) = 1.0,   // CONFIRMED defaults; CST/DENST supplied explicitly",
+        _format_table("PREST", prest_pairs, "log_inp"),
+        _format_table("ATEMT", atemt_pairs, "lin_inp"),
+        _format_table("CST", cst_pairs, "lin_inp"),
+        _format_table("DENST", denst_pairs, "log_inp"),
+        "npc(6) = 1,           // winds from VWT/AZW_T/VWWT tables (CONFIRMED, manual 6.a.4)",
+        f'VWT = "wind speed" monovar GDALT 0 lin_inp xtrap {alt_min_ft:.1f} {wind_speed_fts:.4f} {alt_max_ft:.1f} {wind_speed_fts:.4f}',
+        f'AZW_T = "wind azimuth" monovar GDALT 0 lin_inp xtrap {alt_min_ft:.1f} {wind_direction_deg:.4f} {alt_max_ft:.1f} {wind_direction_deg:.4f}',
+        f'VWWT = "vertical wind" monovar GDALT 0 lin_inp xtrap {alt_min_ft:.1f} 0.0 {alt_max_ft:.1f} 0.0',
+        "// AZWB left at its CONFIRMED default (180.0): AZW_T is meteorological,",
+        "// 0 deg = wind blowing FROM the north (see module docstring).",
+    ]
+    return lines

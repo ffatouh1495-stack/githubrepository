@@ -142,7 +142,8 @@ def run_one(design, diameter_m, payload_mass_kg, output_root, exe_path):
     row.update(metrics)
 
     implemented_checks_pass = (
-        metrics["vacuum_check_decelerates"]
+        metrics["vacuum_check_atmosphere_active"]
+        and metrics["vacuum_check_decelerates"]
         and metrics["vacuum_check_mars_gravity"]
         and metrics["vacuum_check_within_table_range"]
     )

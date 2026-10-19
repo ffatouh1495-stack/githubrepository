@@ -1,15 +1,42 @@
 """
-Phase 0 configuration (spec v2): grid definition, physical constants, and
+Phase 0 configuration (spec v3): grid definition, physical constants, and
 paths. Single place to edit before a run.
 
-Values here are sourced per the Phase 0 build spec ("phase0_spec_for_claude_code.md").
-Where the spec marks something "DECIDED BY THE AUTHOR" or gives an exact
-figure, it's used verbatim. Anything still needing POST2-manual
-verification or a not-yet-supplied data file is marked PENDING below and
-in mars_environment.py.
+UNIT SYSTEM: per the spec's manual-confirmed IOFLAG section, this deck
+uses IOFLAG = 0 (English units) throughout -- input units cannot be mixed
+within a problem. All POST2-input-facing constants below are in English
+units (ft, ft/s, ft^3/s^2, lbf, degrees R, lb/ft^2, slug/ft^3). Grid
+parameters the rest of the pipeline reasons about (diameter, mass,
+ballistic coefficient) stay in metric/SI, matching the rest of the
+project's reporting (e.g. MSL's published beta ~145 kg/m^2) -- conversion
+to English units happens only where a value is actually written into the
+.inp deck (see generate_input.py) or where POST2's English-unit output is
+read back (see parse_output.py).
 """
 
 import os
+
+# ---------------------------------------------------------------------------
+# Unit conversion factors
+# ---------------------------------------------------------------------------
+# Spec-specified factors (used for the atmosphere CSV conversion, per spec's
+# own stated conversion instructions -- used exactly as given):
+SPEC_M_TO_FT = 3.28084
+SPEC_PA_TO_LBFT2 = 0.0208854
+SPEC_K_TO_RANKINE = 1.8
+SPEC_KGM3_TO_SLUGFT3 = 0.00194032
+
+# Precise standard conversions (used elsewhere -- entry state, gravity
+# constants, vehicle sref/lref/weight -- where the spec didn't give its
+# own explicit factor):
+M_PER_FT = 0.3048               # exact, SI-defined
+FT_PER_M = 1.0 / M_PER_FT
+FT2_PER_M2 = 1.0 / (M_PER_FT ** 2)
+KG_TO_LBF = 2.2046226218487757  # weight of 1 kg at standard gravity, in lbf
+N_PER_LBF = 4.4482216152605
+
+G0_SI = 9.80665                 # standard g, m/s^2
+G0_ENGLISH = G0_SI / M_PER_FT   # standard g, ft/s^2 (~32.174049)
 
 # ---------------------------------------------------------------------------
 # POST2 executable (LOCAL WINDOWS MACHINE ONLY)
@@ -20,155 +47,126 @@ POST2_EXE = os.environ.get(
 )
 
 OUTPUT_ROOT = os.environ.get("POST2_PIPELINE_OUTPUT", "results")
-
-# Reference files that should exist alongside POST2 on the Windows machine,
-# per the spec -- used to validate the pipeline before the 32-run grid.
-# "Use these as references for input-file format, and confirm your
-# pipeline can reproduce the problem1a result before building the grid
-# runs" -- that reproduction step still needs to happen on the Windows
-# machine; this pipeline doesn't do it automatically.
-REFERENCE_PROBLEM1A_INP = r"..\problem1a.inp"  # relative to POST2 folder
+REFERENCE_PROBLEM1A_INP = r"..\problem1a.inp"
 REFERENCE_PROBLEM1A_OUT = r"..\problem1a.out"
 
 # ---------------------------------------------------------------------------
-# Data files (PENDING -- "the author will supply it"; not yet in this repo)
+# Data files
 # ---------------------------------------------------------------------------
 DATA_DIR = os.environ.get("POST2_PIPELINE_DATA", "data")
 MARS_ATMOSPHERE_CSV = os.path.join(DATA_DIR, "mars_atmosphere_gale.csv")
 MSL_CD_DIGITIZED_CSV = os.path.join(DATA_DIR, "msl_CD_vs_Mach_digitized.csv")
 
 # ---------------------------------------------------------------------------
-# Mars physical constants
-# Source: Phase 0 spec "Mars planet constants" table. Radii/MU/J2 come from
-# Mars-GRAM documentation (same radii used in the Mars-GRAM run); OMEGA
-# from the standard Mars sidereal day (~88,642.66 s). Converted from the
-# spec's ft/ft^3 figures to SI (verified by hand, see commit notes) since
-# IOFLAG=3 (metric in/out) is used throughout, matching Examples 1A/1B.
-# The spec also notes the Brandenburg et al. paper's own MU (4.289e13
-# m^3/s^2) differs slightly from this table's value -- rounding in the
-# paper's figure, per the spec; this table's value is the one to use.
+# IOFLAG -- CONFIRMED from the POST2 v5.0.0 manual (sections 4.a, 6.a.4):
+# IOFLAG must not change within a problem. The entry state and planet
+# constants here are sourced in English units, so English (IOFLAG=0) is
+# used throughout, not metric (IOFLAG=3, used in Examples 1A/1B).
 # ---------------------------------------------------------------------------
-MU_MARS = 4.282837e13          # m^3/s^2 (42,828.37 km^3/s^2)
-RE_MARS = 3_396_190.0          # m (3,396.19 km)
-RP_MARS = 3_376_200.0          # m (3,376.20 km)
-OMEGA_MARS = 7.088218e-5       # rad/s
+IOFLAG = 0
+
+# ---------------------------------------------------------------------------
+# Mars physical constants -- English units, per spec table (sourced from
+# Mars-GRAM documentation for MU/radii/J2; standard Mars sidereal day for
+# OMEGA). RE_GRAV PENDING verification (spec: "likely equal to RE").
+# ---------------------------------------------------------------------------
+MU_MARS_FT3_S2 = 1.5125e15        # ft^3/s^2 (42,828.37 km^3/s^2)
+RE_MARS_FT = 1.1142356e7          # ft (3,396.19 km)
+RP_MARS_FT = 1.1076772e7          # ft (3,376.20 km)
+OMEGA_MARS = 7.088218e-5          # rad/s (time-based, unit-system-independent)
 J2_MARS = 1.96045e-3
 J3_MARS = J4_MARS = J5_MARS = J6_MARS = J7_MARS = J8_MARS = 0.0
-RE_GRAV_MARS = RE_MARS         # PENDING verification -- spec says "likely equal to RE"
+RE_GRAV_MARS_FT = RE_MARS_FT      # PENDING verify -- spec says "likely equal to RE"
 
-# NPC(16) gravity-model option. Reusing npc(16)=2 ("oblate planet model"),
-# the same flag validated against Earth in Examples 1A/1B -- it printed
-# back RE/RE_GRAV/RP/OMEGA/MU/J2..J8 exactly as given, which is the
-# mechanism the spec asks for ("choose the option that actually uses
-# these constants"). Not re-verified against the manual for Mars
-# specifically, but the mechanism is planet-constant-agnostic.
+# NPC(16) gravity-model option. NOT explicitly confirmed in the manual
+# quote the spec provided (unlike IOFLAG/atmosphere/wind) -- reusing
+# npc(16)=2 ("oblate planet model"), the flag validated against Earth in
+# Examples 1A/1B, where it printed back RE/RE_GRAV/RP/OMEGA/MU/J2..J8
+# exactly as given, which is the mechanism the spec asks for ("choose the
+# option that actually uses these constants").
 NPC16_GRAVITY_MODEL_OPTION = 2
-
-G0_STD = 9.80665  # standard g, for the POST2 "weight" input convention only
 
 # ---------------------------------------------------------------------------
 # Fixed entry state (IDENTICAL for all 32 runs -- do not vary per scenario)
 # Source: Brandenburg, Williams, Woffinden, Putnam, "Demonstration of
 # Linear Covariance Analysis Techniques..." (NASA JSC/UIUC), Table 1
-# ("MSL Entry Interface State"). See spec for full discussion, including
-# the longitude sign resolution and the 125 km vs 133 km note.
+# ("MSL Entry Interface State"). Values given directly in English units by
+# the spec are used verbatim (not re-derived from the metric figures).
 # ---------------------------------------------------------------------------
-EI_ALTITUDE_M = 133_000.0          # 436,352 ft; NOT 125 km -- see spec note
+EI_ALTITUDE_FT = 436352.0          # 133.0 km; NOT 125 km -- see spec note
 EI_GDLAT_DEG = -3.9186             # geodetic latitude (paper Table 1)
 EI_GCLAT_DEG = -3.872746729711164  # PENDING verification: geocentric-latitude
                                     # equivalent of GDLAT above, via
                                     # tan(gclat) = (1-f)^2 tan(gdlat) with
                                     # Mars flattening f = (RE-RP)/RE =
-                                    # 0.0058860. Computed because the
-                                    # validated npc(4)=2 input keyword from
-                                    # Examples 1A/1B is GCLAT (geocentric),
-                                    # but the spec's sourced value is
-                                    # GDLAT (geodetic). Verify against the
-                                    # manual whether npc(4)=2 actually wants
-                                    # geocentric latitude, or whether there's
-                                    # a geodetic-latitude input option --
-                                    # if the latter exists, use EI_GDLAT_DEG
-                                    # directly instead of this conversion.
+                                    # 0.0058860 (unit-independent ratio).
+                                    # The validated npc(4)=2 input keyword
+                                    # from Examples 1A/1B is GCLAT
+                                    # (geocentric); the spec's sourced value
+                                    # is GDLAT (geodetic). Verify against the
+                                    # manual whether npc(4)=2 wants geocentric
+                                    # latitude, or whether a geodetic option
+                                    # exists -- if so, use EI_GDLAT_DEG directly.
 EI_LONG_DEG = 126.72               # +126.72 E (spec resolves the paper's
                                     # apparent sign error -- see spec note)
-EI_VELI_MPS = 6080.1504            # 19,948 ft/s, INERTIAL velocity
+EI_VELI_FTS = 19948.0              # INERTIAL velocity (6.08 km/s)
 EI_GAMMAI_DEG = -15.489            # INERTIAL flight path angle
 EI_AZVELI_DEG = 93.2065            # INERTIAL heading
 
-# Expected Gale Crater touchdown, for the post-run sanity check the spec
-# asks for ("confirm the trajectory ends near Gale to within a reasonable
-# distance"). Source: spec's Table 3 reference.
 GALE_TOUCHDOWN_LAT_DEG = -4.59
 GALE_TOUCHDOWN_LON_DEG = 137.44
 
-# Local terrain height at Gale Crater relative to the MOLA areoid --
-# Mars-GRAM output, per spec. The atmosphere table and all POST2 GDALT
-# values are referenced to the areoid (not corrected for the ~0.43 km
-# areoid-to-ellipsoid offset -- accepted simplification, do not "fix").
+# Local terrain height at Gale Crater relative to the MOLA areoid, in both
+# units (metric for the rest of the pipeline's bookkeeping, English for
+# anything written into the deck). Not corrected for the ~0.43 km
+# areoid-to-ellipsoid offset, per spec -- do not "fix".
 GALE_SURFACE_GDALT_M = -3755.0
+GALE_SURFACE_GDALT_FT = -12319.5542
 
-# Atmosphere table coverage (Mars-GRAM, see MARS_ATMOSPHERE_CSV above).
 ATMOSPHERE_TABLE_MIN_GDALT_M = -5000.0
 ATMOSPHERE_TABLE_MAX_GDALT_M = 140_000.0
-ATMOSPHERE_TABLE_GAMMA = 1.30  # assumed, used to compute speed of sound column
+ATMOSPHERE_TABLE_MIN_GDALT_FT = -16404.2
+ATMOSPHERE_TABLE_MAX_GDALT_FT = 459317.6
+ATMOSPHERE_TABLE_GAMMA = 1.30  # assumed, used by the author to compute the CSV's speed-of-sound column
 
 # ---------------------------------------------------------------------------
 # Event sequence (Mach-triggered; see spec "Event Sequence and End Condition")
 # ---------------------------------------------------------------------------
-CHUTE_DEPLOY_MACH = 1.7   # Karlgaard et al., AAS 13-307, p. 3
-HEATSHIELD_SEP_MACH = 0.7  # Karlgaard et al., p. 3; Way et al. Section 2.5
+CHUTE_DEPLOY_MACH = 1.7
+HEATSHIELD_SEP_MACH = 0.7
 
-# Handoff: altitude ABOVE LOCAL SURFACE, not above the areoid. Converted to
-# an areoid-referenced GDALT trigger value below.
-HANDOFF_ALTITUDE_ABOVE_SURFACE_M = 1700.0  # Fig. 2 labeled value (not the
-                                            # text's 1.6 km -- see spec note)
-HANDOFF_GDALT_M = GALE_SURFACE_GDALT_M + HANDOFF_ALTITUDE_ABOVE_SURFACE_M  # -2055.0
+HANDOFF_ALTITUDE_ABOVE_SURFACE_M = 1700.0
+HANDOFF_ALTITUDE_ABOVE_SURFACE_FT = 5577.428
+HANDOFF_GDALT_M = GALE_SURFACE_GDALT_M + HANDOFF_ALTITUDE_ABOVE_SURFACE_M       # -2055.0
+HANDOFF_GDALT_FT = GALE_SURFACE_GDALT_FT + HANDOFF_ALTITUDE_ABOVE_SURFACE_FT    # -6742.13
 HANDOFF_REFERENCE_VELOCITY_MPS = 78.9  # Fig. 2 labeled value, surface-relative
 
-# Bank angle: ONE fixed value for the whole entry, all 32 runs.
-# Sign/convention PENDING verification against the POST2 manual (spec:
-# "confirm the sign convention in the POST2 manual"). Magnitude from
-# Brandenburg et al. Table 1 (-15 deg alongside -10 deg angle of attack;
-# angle of attack itself is NOT used here since lift is set directly from
-# the L/D table instead -- see spec).
+# Bank angle -- NOT covered by the manual-confirmed sections of the spec.
+# Syntax/sign convention PENDING verification (see mars_environment.py /
+# generate_input.py). Magnitude from Brandenburg et al. Table 1.
 BANK_ANGLE_DEG = 15.0
 
 # ---------------------------------------------------------------------------
-# Mass model
-# Source: spec "Total vehicle mass" section. Fixed non-payload vehicle mass
-# (2,358 kg = MSL's 3,257 kg entry mass minus 899 kg rover) is the SAME
-# for both designs and every diameter -- an accepted simplification, not
-# an estimate (replaces the payload-mass-fraction approximation used in
-# the Phase 0 v1 build).
+# Mass model (metric -- mass itself is never a direct POST2 input; only
+# the derived WEIGHT, converted to lbf at deck-generation time, is).
 # ---------------------------------------------------------------------------
 FIXED_VEHICLE_MASS_KG = 2358.0
-
-# Mass dropped at heat-shield/aeroshell separation (Mach 0.7), SAME for
-# both designs and every scenario. Explicitly an author assumption, NOT a
-# sourced value -- do not describe it as sourced anywhere (code comments,
-# README, or the paper). If a published MSL heat-shield-only mass is found
-# later, report it with its exact source before swapping this in.
-HEATSHIELD_DROP_MASS_KG = 385.0
-
-# Parachute mass (included within FIXED_VEHICLE_MASS_KG already -- do not
-# add on top of total mass, and do not scale with chute size).
-# Source: Cruz et al., NTRS 20130012762, Table 3.
-PARACHUTE_MASS_KG = 46.826
+HEATSHIELD_DROP_MASS_KG = 385.0   # author assumption, NOT sourced -- see README
+PARACHUTE_MASS_KG = 46.826        # included within FIXED_VEHICLE_MASS_KG already
 
 # ---------------------------------------------------------------------------
-# Parachute scaling (DECIDED BY THE AUTHOR: MSL disk-gap-band, canopy area
-# scaled with total mass, constant chute loading)
-# Source: Cruz et al., NTRS 20130012762, Tables 1-3, Fig. 9, Eq. 11-12;
-# MSL entry mass 3,257 kg from Way et al., NTRS 20090007730, Table 1.
+# Parachute scaling (metric -- see aero_data.py; the scaling RATIO is
+# unit-independent, so this stays in SI for simplicity. Only the final
+# SREF used in the deck needs an English-unit conversion, done in
+# generate_input.py.)
 # ---------------------------------------------------------------------------
 MSL_CHUTE_REFERENCE_MASS_KG = 3257.0
 MSL_CHUTE_REFERENCE_AREA_M2 = 357.94
-CHUTE_OPENING_LOAD_FACTOR = 1.407  # Eq. 11-12, for informational F = q*S0*1.407*CD
-CHUTE_INFLATION_TIME_S = 2.0       # ~mortar fire to full inflation, Eq. 11
+CHUTE_OPENING_LOAD_FACTOR = 1.407
+CHUTE_INFLATION_TIME_S = 2.0
 
 
 def chute_area_m2(total_mass_kg: float) -> float:
-    """S0 scaled to hold MSL's chute loading (total_mass/S0) constant."""
     return MSL_CHUTE_REFERENCE_AREA_M2 * (total_mass_kg / MSL_CHUTE_REFERENCE_MASS_KG)
 
 
@@ -178,7 +176,8 @@ def chute_diameter_m(total_mass_kg: float) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Parameter grid (Phase 0: exactly one run per cell, 32 total)
+# Parameter grid (Phase 0: exactly one run per cell, 32 total) -- metric,
+# matching the rest of the project's reporting.
 # ---------------------------------------------------------------------------
 RIGID_DIAMETERS_M = [3.0, 3.5, 4.0, 4.5]
 INFLATABLE_DIAMETERS_M = [6.0, 9.0, 12.0, 15.0]
@@ -190,23 +189,23 @@ DESIGNS = {
 }
 
 # ---------------------------------------------------------------------------
-# Fixed-wind test conditions (Phase 0: same for all 32 runs)
+# Fixed-wind test conditions (Phase 0: same for all 32 runs) -- CONFIRMED
+# from the manual: NPC(6)=1, azimuth bias AZWB defaults to 180.0, meaning
+# AZW_T is meteorological (0 deg = wind blowing FROM the north). Author
+# said "0 degrees"; under this convention that means a wind from the
+# north. If a different direction was meant, change WIND_DIRECTION_DEG only.
 # ---------------------------------------------------------------------------
 WIND_SPEED_MPS = 10.0
-WIND_DIRECTION_DEG = 0.0
-# PENDING verification: azimuth convention (blows-toward vs. blows-from)
-# and what 0 deg references, per the POST2 manual's NPC(6)/AZW_T section.
-# Document whatever is found in README.md once confirmed -- see
-# mars_environment.py.
+WIND_DIRECTION_DEG = 0.0  # meteorological convention (FROM the north) -- see above
 
 # ---------------------------------------------------------------------------
-# Mars atmosphere / wind readiness gate (PENDING -- do not run until this
-# is True). See mars_environment.py for what's still needed.
+# Readiness gates
 # ---------------------------------------------------------------------------
-MARS_ATMOSPHERE_READY = False
+# Atmosphere/wind table SYNTAX is now confirmed (see mars_environment.py);
+# this flag now gates only on the DATA FILE actually being present.
+MARS_ATMOSPHERE_READY = os.path.exists(MARS_ATMOSPHERE_CSV)
 
-# Readiness gate for the real digitized CD/L-D and chute-CD tables. False
-# until MSL_CD_DIGITIZED_CSV exists and aero_data.py has been updated to
-# read it instead of using the inline transcription of the spec's summary
-# table (which is NOT the full digitized file the spec asks for).
-AERO_DATA_FROM_DIGITIZED_FILE = False
+# Readiness gate for the real digitized CD/L-D table. False until
+# MSL_CD_DIGITIZED_CSV exists and aero_data.py has been updated to read it
+# instead of using the placeholder L/D interpolation.
+AERO_DATA_FROM_DIGITIZED_FILE = os.path.exists(MSL_CD_DIGITIZED_CSV)

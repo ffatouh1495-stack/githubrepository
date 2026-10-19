@@ -44,8 +44,16 @@ in the Claude Code session.
 | Brandenburg, Williams, Woffinden, Putnam, NASA JSC/UIUC paper, Table 1 | Fixed entry interface state (altitude, lat/long, inertial velocity/FPA/azimuth), bank angle (-15 deg) |
 | Schoenenberger et al., AAS 13-306 (NTRS 20130010088) | Shared CD-vs-Mach table, L/D prose endpoints |
 
+## POST2 manual sections cited (confirmed syntax)
+
+| Section | Used for |
+|---|---|
+| 4.a (I/O unit flag) | IOFLAG=0 (English units) chosen; units cannot mix within a problem |
+| 6.a.4 (general atmosphere / winds model) | NPC(5)=1, PREST/ATEMT/CST/DENST tables; ATMOSK(1)/(2) defaults; NPC(6)=1, VWT/AZW_T/VWWT tables; AZWB default (180.0) and the resulting meteorological azimuth convention |
+| 6.d (table input) | Monovariate table syntax, log_inp vs. lin_inp, table-size ("limited only by swap space") |
+
 ## Open items affecting this record
 
-- `mars_atmosphere_gale.csv` and `msl_CD_vs_Mach_digitized.csv` not yet supplied -- see above.
-- NPC(5)=1 tabular-atmosphere syntax, ATMOSK(1)/(2) behavior, and NPC(6) wind syntax not yet confirmed against the POST2 manual -- see `mars_environment.py`.
-- The no-silent-vacuum-run verification (spec-required, run on every scenario) has not yet been executed against a real run -- results will be recorded in README.md once the Windows-side batch runs.
+- `mars_atmosphere_gale.csv` and `msl_CD_vs_Mach_digitized.csv` not yet supplied — searched this repository and this conversation's upload folder, found in neither. This Claude Code session has no access to the author's local Windows machine, so a file being "in place" there isn't visible here; needs to be pushed to the repo or attached directly.
+- RE_GRAV, the bank-angle (BNKPC) input syntax/sign, and the latitude input convention (geocentric vs. geodetic) are not covered by the manual sections confirmed so far — see README.md "Items still needing manual verification".
+- The no-silent-vacuum-run verification (spec-required, run on every scenario) has not yet been executed against a real run — results will be recorded in README.md once the Windows-side batch runs.

@@ -1,13 +1,13 @@
 srchm = 0,           // no search or optimization
-ioflag = 3,           // metric input / metric output
+ioflag = 0,           // English units (IOFLAG=0) -- CONFIRMED, manual 4.a/6.a.4
 ipro = -1,           // print final trajectory only
 opt = 0,             // no optimization
 title = 'Phase0 rigid_d4.5_m900',
 event = 1,            // event or phase number
 fesn = 100,           // final event number
 maxtim = 5000.0,      // maximum allowable time
-altmax = 5.0e6,       // maximum allowable altitude (skip-out catch)
-altmin = -2055.0,    // PENDING verify: global safety-net so a run
+altmax = 16404199.5,    // maximum allowable altitude, ft (skip-out catch)
+altmin = -6742.13,   // ft; PENDING verify: global safety-net so a run
                       // that never separates the heat shield still stops at
                       // the handoff altitude instead of falling through --
                       // see generate_input.py module docstring
@@ -19,34 +19,32 @@ npc(2) = 1,           // fourth order runge-kutta
 // Fixed entry state -- SAME for all 32 scenarios, per spec
 // (Brandenburg et al., Table 1 'MSL Entry Interface State')
 npc(4) = 2,           // position vector initialization flag
-gdalt = 133000.0,     // initial geodetic altitude (133.0 km, NOT 125 km -- see README)
-long = 126.72,        // initial east longitude
-gclat = -3.872746729711164,  // PENDING verify: geocentric-latitude equivalent of
+gdalt = 436352.0,     // initial geodetic altitude, ft (133.0 km, NOT 125 km -- see README)
+long = 126.72,        // initial east longitude, deg
+gclat = -3.872746729711164,  // deg; PENDING verify: geocentric-latitude equivalent of
                       // the sourced GDLAT=-3.9186 -- see config.py
 npc(3) = 2,           // input gammai, veli, azveli (inertial)
-gammai = -15.489,     // initial inertial flight path angle
-azveli = 93.2065,     // initial inertial heading
-veli = 6080.1504,    // initial inertial velocity
-// Mars atmosphere + wind
-// >>> PLACEHOLDER -- Mars atmosphere table (NPC(5)=1 / PREST /
-// >>> ATEMT / CST / DENST) and wind table (NPC(6) / VWT / AZW_T)
-// >>> syntax not yet confirmed, and mars_atmosphere_gale.csv not
-// >>> yet supplied. This reference file is NOT runnable as-is.
-// >>> See mars_environment.py and README.md for status.
+gammai = -15.489,     // initial inertial flight path angle, deg
+azveli = 93.2065,     // initial inertial heading, deg
+veli = 19948.0,    // initial inertial velocity, ft/s
+// Mars atmosphere + wind (CONFIRMED syntax, manual 6.a.4 -- see mars_environment.py)
+// >>> PLACEHOLDER -- data/mars_atmosphere_gale.csv not present.
+// >>> Table SYNTAX is confirmed (see mars_environment.py); only
+// >>> the data file is missing. This reference file is NOT runnable.
 // >>> wind_speed_mps=10.0, wind_direction_deg=0.0
 // Model planetary gravity (Mars)
 npc(16) = 2,          // oblate planet model
-omega = 7.088218e-05,   // rotation rate of attracting planet
-mu = 42828370000000.0,      // gravitational constant of attracting planet
-re = 3396190.0,     // equatorial radius of planet
-rp = 3376200.0,     // polar radius of planet
-re_grav = 3396190.0, // PENDING verify: reference radius for the gravity model
+omega = 7.088218e-05,   // rotation rate of attracting planet, rad/s
+mu = 1512500000000000.0,      // gravitational constant, ft^3/s^2
+re = 11142356.0,     // equatorial radius, ft
+rp = 11076772.0,     // polar radius, ft
+re_grav = 11142356.0, // ft; PENDING verify: reference radius for the gravity model
 j2 = 0.00196045,   // Mars J2
 j3 = 0.0, j4 = 0.0, j5 = 0.0, j6 = 0.0, j7 = 0.0, j8 = 0.0, // higher terms not modeled for Mars
 // Input vehicle characteristics -- Phase 1 (entry, full vehicle + aeroshell)
-wgtsg = 31950.065700,   // (N) total entry weight = total_mass * standard g
-sref = 15.904313,          // (sq m) reference area = pi*(d/2)^2, d=4.5 m
-lref = 4.5,              // (m) reference length = diameter
+wgtsg = 7182.660502,   // lbf; total entry weight = total_mass_kg * 2.2046226218487757
+sref = 171.192598,          // sq ft; reference area = pi*(d/2)^2, d=4.5 m
+lref = 14.763780,              // ft; reference length = diameter
 npc(8) = 2,           // use drag, lift, & side force coefficients
 cdt = 'cdt', monovar, mach, 0, lin_inp, xtrap,
 0.0, 1.4640,  1.7, 1.4640,  2.06, 1.4640,  2.27, 1.4180,
@@ -62,14 +60,14 @@ clt = 'clt', monovar, mach, 0, lin_inp, xtrap,
 8.0, 0.3857,  8.9, 0.3857,  9.9, 0.3840,  12.0, 0.3805,
 14.0, 0.3783,  16.0, 0.3754,  18.1, 0.3708,  20.0, 0.3661,
 22.5, 0.3581,  25.0, 0.3504,  30.0, 0.3504,
-bnkpc = 'bnkpc', constant, 0, 15.0,   // PENDING verify: fixed bank angle syntax + sign convention
+bnkpc = 'bnkpc', constant, 0, 15.0,   // deg; PENDING verify: fixed bank angle syntax + sign convention (not in the manual-confirmed sections)
 event = 50,           // parachute deployment
 critr = 'mach',       // Mach-number trigger (NOT altitude or time), per spec
 value = 1.7,   // MSL's real chute-deploy Mach (Karlgaard et al.)
 mdl = 1,              // ignore the sign of the deriv. of critr
 // Post-chute drag = chute (S0=358.050 sq m, D0=21.351 m) + body, combined
 // into one effective CD table referenced to the body's SREF -- see
-// aero_data.combined_post_chute_cd_table() for the derivation.
+// aero_data.combined_post_chute_cd_table() for the derivation (unit-independent ratio).
 cdt = 'cdt', monovar, mach, 0, lin_inp, xtrap,
 0.0, 15.4219,  0.8, 15.4219,  0.95, 12.4952,  1.5, 18.3486,
 1.7, 17.2025,
@@ -79,11 +77,11 @@ event = 70,           // heat shield (aeroshell) separation
 critr = 'mach',
 value = 0.7,   // MSL's real heat-shield-sep Mach (Karlgaard et al.)
 mdl = 1,
-wgtsg = 28174.505450,   // (N) weight after dropping the author-assumed
+wgtsg = 6333.880793,   // lbf; weight after dropping the author-assumed
                        // 385.0 kg heat-shield/aeroshell mass
 event = 100,          // powered-descent handoff
 critr = 'gdalt',
-value = -2055.0,    // 1.7 km above the Gale local surface (-3755.0 m areoid-referenced)
+value = -6742.13,    // ft; 1.7 km above the Gale local surface (-3755.0 m areoid-referenced)
 mdl = 1,
 endprb = 1,
 endjob = 1,
