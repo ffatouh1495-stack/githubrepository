@@ -187,12 +187,15 @@ def write_input_deck(design: str, diameter_m: float, payload_mass_kg: float, out
 
 
 def make_reference_templates(templates_dir: str = "templates") -> None:
-    """Write human-readable, non-runnable reference decks (one per design)
-    for eyeballing the structure directly, using the baseline grid cell
-    for each design. Regenerate with:
+    """Write reference decks (one per design) for eyeballing the structure
+    directly, using the baseline grid cell for each design. Uses the real
+    atmosphere/wind data when available (full, runnable deck); falls back
+    to the non-runnable placeholder preview if the atmosphere CSV isn't
+    present yet. Regenerate with:
         python generate_input.py
     """
     import os
+    from mars_environment import MarsEnvironmentNotReady
 
     os.makedirs(templates_dir, exist_ok=True)
     samples = {
@@ -200,7 +203,10 @@ def make_reference_templates(templates_dir: str = "templates") -> None:
         "inflatable": (9.0, 1800.0),
     }
     for design, (diameter_m, payload_mass_kg) in samples.items():
-        text = build_input_deck(design, diameter_m, payload_mass_kg, _preview=True)
+        try:
+            text = build_input_deck(design, diameter_m, payload_mass_kg)
+        except MarsEnvironmentNotReady:
+            text = build_input_deck(design, diameter_m, payload_mass_kg, _preview=True)
         path = os.path.join(templates_dir, f"{design}_template.inp")
         with open(path, "w", newline="\r\n") as f:
             f.write(text)

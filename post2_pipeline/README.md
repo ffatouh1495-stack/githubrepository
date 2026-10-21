@@ -6,35 +6,45 @@ same fixed wind for all 32, ending at the MSL powered-descent handoff
 point (not simulating powered descent/sky crane). Built against
 `phase0_spec_for_claude_code1.md`.
 
-## Current status: BLOCKED on two data files only
+## Current status: UNBLOCKED (pipeline-side) — needs a real run on Windows
 
-**The atmosphere/wind table SYNTAX is now confirmed against the POST2
-manual** (see "Confirmed manual syntax" below) — that was the harder half
-of the earlier blocker. What's left is purely data:
+Both data files are now in place and wired in:
 
-- `data/mars_atmosphere_gale.csv` (146-row Mars-GRAM table)
-- `data/msl_CD_vs_Mach_digitized.csv` (full digitized CD/L-over-D table)
+- `data/mars_atmosphere_gale.csv` (146 rows, confirmed) — loaded by
+  `mars_environment.py`, converted to English units, emitted as the
+  `PREST`/`ATEMT`/`CST`/`DENST` tables.
+- `data/msl_CD_vs_Mach_digitized.csv` (195 rows, Mach 2.0599–25.5634) —
+  loaded by `aero_data.py`; `BODY_CD_TABLE`/`BODY_CL_TABLE` now come
+  directly from this file (CL = CD × L_over_D at each digitized point),
+  not the placeholder prose-endpoint interpolation. The flat-hold
+  boundary regions (below Mach 2.0599, above Mach 25.5634) now use the
+  file's own actual endpoint values (CD=1.464 / CD=1.4544) rather than
+  the spec markdown's rounded summary-table endpoints (2.06/1.464,
+  25.0/1.460) — the file supersedes the inline summary per spec ("read
+  the file; do not retype values").
+- Baseline sanity check (900 kg / 4.5 m rigid): ballistic coefficient
+  comes out to **140.8 kg/m²** against MSL's published ~145 kg/m²
+  (~3% off) — using the real digitized hypersonic CD (1.4544) directly,
+  not tuned. Within the spec's own stated digitization uncertainty
+  (±0.02–0.03 in CD).
+- `config.MARS_ATMOSPHERE_READY` / `config.AERO_DATA_FROM_DIGITIZED_FILE`
+  both auto-detect via `os.path.exists(...)` — both are now `True`.
+- Verified end-to-end in this session: `generate_input.build_input_deck()`
+  now produces a full, real 331-line deck (no placeholder blocks) for
+  both designs with no exceptions; `templates/*.inp` are regenerated
+  from this real data and are genuinely runnable, not placeholders.
+  `batch_runner.run_one()` now proceeds past input generation and only
+  fails on POST2 execution itself, because this Linux session has no
+  POST2 executable — expected, since POST2 only runs on the Windows
+  machine. **No actual POST2 run has happened yet** — the pipeline has
+  not been validated against real POST2 output with this data.
 
-**I looked for both and could not find them anywhere I have access to** —
-not in this repository, not in the upload folder for this conversation.
-This Claude Code session runs in an isolated cloud container with no
-access to your local Windows machine or its "ALLPOST2FILES" /
-"mars edl automation" folder, so a file being "in place" there doesn't
-make it visible here. To unblock, either:
-- push them to this branch under `post2_pipeline/data/` (e.g. via git),
-  or
-- attach/paste them directly into this conversation,
-
-and I'll wire them in. `config.MARS_ATMOSPHERE_READY` and
-`config.AERO_DATA_FROM_DIGITIZED_FILE` both auto-detect the files' presence
-(`os.path.exists(...)`) — nothing else needs to change once they land at
-the right paths.
-
-`mars_environment.py` raises `MarsEnvironmentNotReady` for every scenario
-until `mars_atmosphere_gale.csv` is present, so `batch_runner.py` stops
-immediately with `status: blocked`. This mirrors a failure already hit
-once in this project: in Example 1A, forgetting to set the Earth
-atmosphere flag didn't error — POST2 just silently ran with zero density.
+This mirrors a failure already hit once in this project: in Example 1A,
+forgetting to set the Earth atmosphere flag didn't error — POST2 just
+silently ran with zero density. That specific risk is now closed (real
+data, confirmed syntax), but it's still unverified against the real
+executable — run the required single-case verification (rigid, 4.5 m,
+900 kg) before trusting the full 32-run grid.
 
 ## Confirmed manual syntax (this unblock)
 
@@ -119,9 +129,10 @@ post2_pipeline/
                                Mach numbers, grid definition (metric).
   mars_environment.py         Mars atmosphere + wind block. Syntax
                                CONFIRMED; blocked only on the data file.
-  aero_data.py                Shared CD/L-D table (author-supplied values,
-                               dimensionless -- unaffected by IOFLAG)
-                               + placeholder L/D + placeholder chute CD,
+  aero_data.py                Shared CD/L-D table, loaded from the real
+                               digitized CSV (dimensionless -- unaffected
+                               by IOFLAG) + placeholder chute CD (still
+                               prose-based, see below),
                                + the post-chute combined-drag-table builder.
   generate_input.py           Builds one .inp deck's text (English units)
                                for a given (design, diameter, payload_mass).
@@ -134,11 +145,13 @@ post2_pipeline/
                                .inp/.out/.log, phase0_summary.csv, and
                                RUN_MANIFEST.csv.
   MATERIALS_AND_SOFTWARE.md   Every tool/library/data source and its version.
-  data/                       mars_atmosphere_gale.csv and
-                               msl_CD_vs_Mach_digitized.csv go here (NOT YET SUPPLIED).
-  templates/                  Human-readable *reference* decks (one per
-                               design), NOT runnable (placeholder env block).
-                               Regenerate with `python generate_input.py`.
+  data/                       mars_atmosphere_gale.csv (146 rows) and
+                               msl_CD_vs_Mach_digitized.csv (195 rows) --
+                               both SUPPLIED, in place.
+  templates/                  Reference decks (one per design). Now built
+                               from the real data -- genuinely runnable,
+                               not placeholders. Regenerate with
+                               `python generate_input.py`.
   results/                    Created at run time (gitignored). One
                                subfolder per design; phase0_summary.csv;
                                RUN_MANIFEST.csv; a copy of the atmosphere CSV.
@@ -151,13 +164,14 @@ post2_pipeline/
   drops a flat **385 kg**, an **author assumption**, not sourced — never
   described as sourced anywhere.
 - **Aerodynamics**: ONE shared CD-vs-Mach table and ONE shared L/D-vs-Mach
-  table for both designs. CD table is the spec's own supplied values,
-  held flat at 1.464 below Mach 2.06 and 1.460 above Mach 25 (literal
-  repeated-value table points, not relying on `xtrap` extrapolation
-  semantics). L/D is a **placeholder** linear interpolation between the
-  two prose-cited endpoints (0.29 near Mach 2, 0.24 at Mach 25) —
-  replace once `msl_CD_vs_Mach_digitized.csv` exists. Lift is zero below
-  Mach 2.06.
+  table for both designs, loaded directly from the real
+  `msl_CD_vs_Mach_digitized.csv` (195 points, Mach 2.0599–25.5634),
+  held flat at the file's own actual endpoint values (CD=1.464 below
+  Mach 2.0599, CD=1.4544 above Mach 25.5634 — literal repeated-value
+  table points, not relying on `xtrap` extrapolation semantics). CL at
+  each point = CD × L_over_D from the file, so lift and drag stay
+  mutually consistent as the spec requires. Lift is zero below Mach
+  2.0599 (balance masses jettisoned near Mach 2.0, per spec).
 - **Bank angle**: one fixed value (15°) for the whole entry phase, zeroed
   after chute deploy.
 - **Parachute**: MSL disk-gap-band, canopy area scaled to hold MSL's

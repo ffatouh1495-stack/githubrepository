@@ -31,8 +31,8 @@ in the Claude Code session.
 
 | File | Source | Status |
 |---|---|---|
-| `data/mars_atmosphere_gale.csv` | Mars-GRAM 2010 v1.0 output, Gale Crater, 6 Aug 2012 05:18 UTC, nominal mean atmosphere (density/wind perturbations scaled to 0), Ls=150.7 deg, dust optical depth 0.48. 146 rows, 1 km steps, -5000 m to 140000 m (MOLA areoid-referenced). Speed-of-sound column computed as sqrt(1.30 * 8314.462/MolWeight * T) -- gamma=1.30 assumed, not a Mars-GRAM output. | **NOT YET SUPPLIED** -- pipeline is blocked on this (see `mars_environment.py`) |
-| `data/msl_CD_vs_Mach_digitized.csv` | Digitized from Schoenenberger et al., "Assessment of the Reconstructed Aerodynamics of the Mars Science Laboratory Entry Vehicle," AAS 13-306 (NTRS 20130010088), Figs. 12a, 12b, 14. Columns: Mach_approx, velocity_mps, CA, alpha_deg, L_over_D, CD. | **NOT YET SUPPLIED** -- `aero_data.py` currently uses the summary CD table transcribed directly from the spec (author-supplied, used as given) plus a placeholder L/D interpolation between two cited endpoints. Replace once this file exists (`config.AERO_DATA_FROM_DIGITIZED_FILE`). |
+| `data/mars_atmosphere_gale.csv` | Mars-GRAM 2010 v1.0 output, Gale Crater, 6 Aug 2012 05:18 UTC, nominal mean atmosphere (density/wind perturbations scaled to 0), Ls=150.7 deg, dust optical depth 0.48. 146 rows, 1 km steps, -5000 m to 140000 m (MOLA areoid-referenced). Speed-of-sound column computed as sqrt(1.30 * 8314.462/MolWeight * T) -- gamma=1.30 assumed, not a Mars-GRAM output. | **SUPPLIED** -- verified 146 rows, loaded and unit-converted successfully in `mars_environment.py` |
+| `data/msl_CD_vs_Mach_digitized.csv` | Digitized from Schoenenberger et al., "Assessment of the Reconstructed Aerodynamics of the Mars Science Laboratory Entry Vehicle," AAS 13-306 (NTRS 20130010088), Figs. 12a, 12b, 14. Columns: Mach_approx, velocity_mps, CA, alpha_deg, L_over_D, CD. | **SUPPLIED** -- 195 rows, Mach 2.0599-25.5634. `aero_data.py` now builds BODY_CD_TABLE/BODY_CL_TABLE directly from this file; baseline (900 kg/4.5 m rigid) ballistic coefficient sanity check: 140.8 kg/m^2 vs. MSL's published ~145 kg/m^2 (~3% off, within the spec's own stated digitization uncertainty) |
 
 ## Key literature sources (constants, event triggers, models)
 
@@ -54,6 +54,6 @@ in the Claude Code session.
 
 ## Open items affecting this record
 
-- `mars_atmosphere_gale.csv` and `msl_CD_vs_Mach_digitized.csv` not yet supplied — searched this repository and this conversation's upload folder, found in neither. This Claude Code session has no access to the author's local Windows machine, so a file being "in place" there isn't visible here; needs to be pushed to the repo or attached directly.
 - RE_GRAV, the bank-angle (BNKPC) input syntax/sign, and the latitude input convention (geocentric vs. geodetic) are not covered by the manual sections confirmed so far — see README.md "Items still needing manual verification".
-- The no-silent-vacuum-run verification (spec-required, run on every scenario) has not yet been executed against a real run — results will be recorded in README.md once the Windows-side batch runs.
+- The chute CD-vs-Mach curve (Cruz et al. Fig. 9) is still a prose-based placeholder, not a true digitization — needs author sign-off before the real grid run.
+- The no-silent-vacuum-run verification (spec-required, run on every scenario) has not yet been executed against a real run — the pipeline is verified end-to-end through input generation only (no POST2 executable in this build/test environment); results will be recorded in README.md once the Windows-side batch runs.
