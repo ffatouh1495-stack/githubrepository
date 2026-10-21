@@ -51,9 +51,10 @@ in the Claude Code session.
 | 4.a (I/O unit flag) | IOFLAG=0 (English units) chosen; units cannot mix within a problem |
 | 6.a.4 (general atmosphere / winds model) | NPC(5)=1, PREST/ATEMT/CST/DENST tables; ATMOSK(1)/(2) defaults; NPC(6)=1, VWT/AZW_T/VWWT tables; AZWB default (180.0) and the resulting meteorological azimuth convention |
 | 6.d (table input) | Monovariate table syntax, log_inp vs. lin_inp, table-size ("limited only by swap space") |
+| 6.a, ALPARG/BETARG/BNKARG, ALPHA/BETA/BNKANG, ALPPC/BETPC/BNKPC(i) entries | Bank angle (BNKPC(i), i=1,4 cubic polynomial coefficients for BNKANG, argument defaults to TIMES when IGUID(1) is -1 or 0) — supplied by the author after the 32-run grid's bank angle turned out to never be applied (bare `bnkpc = <val>,`, no index, matched neither the scalar BNKANG nor the indexed BNKPC(i) array). Fix applied in generate_input.py (`bnkpc(1) = <val>,`); not yet confirmed against a real POST2 run. |
 
 ## Open items affecting this record
 
-- RE_GRAV, the bank-angle (BNKPC) input syntax/sign, and the latitude input convention (geocentric vs. geodetic) are not covered by the manual sections confirmed so far — see README.md "Items still needing manual verification".
+- RE_GRAV and the latitude input convention (geocentric vs. geodetic) are not covered by the manual sections confirmed so far — see README.md "Items still needing manual verification". The bank-angle syntax is now manual-confirmed (above) but not yet confirmed against real POST2 output.
 - The chute CD-vs-Mach curve (Cruz et al. Fig. 9) is still a prose-based placeholder, not a true digitization — needs author sign-off before the real grid run.
-- The no-silent-vacuum-run verification (spec-required, run on every scenario) has not yet been executed against a real run — the pipeline is verified end-to-end through input generation only (no POST2 executable in this build/test environment); results will be recorded in README.md once the Windows-side batch runs.
+- The full 32-run Phase 0 grid has been executed on the Windows machine, but its results are invalidated by the bank-angle bug above and must be re-run once that fix is confirmed. The no-silent-vacuum-run checks themselves ran successfully against real output (see README.md "No-silent-vacuum-run verification").

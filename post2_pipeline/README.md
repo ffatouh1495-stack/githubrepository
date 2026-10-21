@@ -20,8 +20,10 @@ classification) are sound, but the trajectories themselves are wrong.
 **Do not use the first 32-run grid's results.**
 
 Root cause and fix: see "Bank angle (BNKPC/BNKANG) — bugfix and open
-items" below. **Status: fix applied but UNVERIFIED — needs one real test
-run before the bank sweep (Task 2) or a grid re-run.**
+items" below. **Status: fix applied, syntax now confirmed against the
+POST2 manual text (`BNKPC(i)` polynomial coefficients) — still needs one
+real test run to confirm against actual POST2 output before the bank
+sweep (Task 2) or a grid re-run.**
 
 ## Bank angle (BNKPC/BNKANG) — bugfix and open items
 
@@ -38,38 +40,41 @@ instead of MSL's real ~E+259 s / 12.1 km (Karlgaard et al.); and only 1 of
 16 rigid runs (`d4.5_m900`) even got through chute deploy → heat-shield
 sep → handoff before hitting the `ALTMIN` safety net early.
 
-**Fix attempted** (`generate_input.py`): changed `bnkpc = {value},` to
-`bnkpc(1) = {value},` — an explicit array-index assignment to element 1
-(the constant/c0 term) rather than a bare assignment to the whole `BNKPC`
-array. `BNKPC`'s own echo as a 4-element array (polynomial coefficients)
-suggests the bare form either wasn't recognized as a valid assignment to
-that element, or was overwritten by a default afterward; indexed
-assignment is the same mechanism already confirmed working for `cdt`/`clt`
-table rows elsewhere in this deck, so it's the most likely fix, but **it
-is UNVERIFIED** — I don't have the POST2 manual text to confirm this is
-the right syntax, and the first attempt at `bnkpc` syntax earlier in this
-project (the `'bnkpc', constant, 0, <val>,` table form) was also wrong.
+**Fix, now CONFIRMED against the manual text** (`generate_input.py`
+changed `bnkpc = {value},` to `bnkpc(1) = {value},`). The author supplied
+the manual's own entries:
 
-**Before running the Task 2 bank sweep or any grid re-run**, run ONE test
-scenario and check its `.out` file directly:
+> `ALPARG`/`BETARG`/`BNKARG`: names of the variables used as arguments in
+> the cubic polynomials for angle of attack, sideslip, and bank. Used if
+> `IGUID(1)=-1` or `0`. (default argument: `TIMES`)
+>
+> `ALPHA`/`BETA`/`BNKANG` (deg, default 0.0): the initial values of angle
+> of attack, sideslip, and bank, respectively.
+>
+> `ALPPC(i)`, `BETPC(i)`, `BNKPC(i)`, i=1,4 (decimal, default 0.0): angle
+> of attack (`ALPHA`), sideslip (`BETA`), and bank (`BNKANG`) polynomial
+> coefficients, respectively, where i=1 is the constant term, i=2 the
+> linear (rate) term, i=3 the quadratic term, i=4 the cubic term.
+
+So `BNKANG(t) = BNKPC(1) + BNKPC(2)·t + BNKPC(3)·t² + BNKPC(4)·t³`, with
+the argument defaulting to time (`TIMES`) whenever `IGUID(1)` is `-1` or
+`0` — its default, which this deck never touches. Setting only
+`BNKPC(1)` (elements 2–4 stay at their own default `0.0`) gives exactly a
+**constant** bank angle for the whole phase, with no `IGUID` flag needed.
+This also explains the original bug: the broken deck's bare
+`bnkpc = <val>,` (no index) matches neither the scalar `BNKANG` variable
+name nor the indexed `BNKPC(i)` array, so POST2 silently matched nothing.
+
+**Still needs one real run to confirm** (syntax is now manual-backed, but
+not yet tested against real POST2):
 ```
 python batch_runner.py --only rigid_d4.5_m900 --exe "<path to post2_windows_commercial.exe>"
 ```
-Then check, in `results\rigid\rigid_d4.5_m900.out`:
-1. Does the echoed `BNKPC` array show `15.0` in the first position (not
-   `[0,0,0,0]`)?
-2. Does `bnkang` in the per-step printed rows actually read ~15 (or -15,
-   depending on sign) during Phase 1, not 0.0?
-
-If both are true, the fix worked — proceed to `bank_sweep.py` (added this
-session, see below). **If `bnkang` is still 0.0**, the next things to try,
-in order, are: (a) `bnkang = {value},` as a direct initial-value
-assignment instead of `bnkpc(1)`, and (b) an `IGUID(1)` guidance-mode flag
-(manual section 6.a, the `BNKPC`/`BNKANG`/`IGUID(1)` entries around lines
-13255–13275) that may need to be set before POST2 will read `BNKPC` into
-`bnkang` at all — if you have the manual text for that section handy,
-pasting it here would let me get this right on the first try instead of
-guessing again.
+Then check, in `results\rigid\rigid_d4.5_m900.out`: does the echoed
+`BNKPC` array show `15.0` in the first position (not `[0,0,0,0]`), and
+does `bnkang` in the per-step printed rows actually read ~15 (or -15,
+depending on sign) during Phase 1? If both are true, proceed to
+`bank_sweep.py` (added this session, see below).
 
 **Sign convention**: per the manual, positive `BNKANG` banks to the
 right. Doesn't affect vertical-plane behavior (peak g, skip magnitude,
