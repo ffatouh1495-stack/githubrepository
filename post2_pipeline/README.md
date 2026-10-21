@@ -20,12 +20,12 @@ classification) are sound, but the trajectories themselves are wrong.
 **Do not use the first 32-run grid's results.**
 
 Root cause and fix: see "Bank angle (BNKPC/BNKANG) — bugfix and open
-items" below. **Status: fix applied, syntax now confirmed against the
-POST2 manual text (`BNKPC(i)` polynomial coefficients) — still needs one
-real test run to confirm against actual POST2 output before the bank
-sweep (Task 2) or a grid re-run.**
+items" below. **Status: FIX CONFIRMED WORKING against a real run**
+(`max_abs_bnkang_deg = 15.0`, matching the commanded value) — **the
+32-run grid should be re-run** once the Task 2 bank sweep (below) picks a
+final bank angle.
 
-## Bank angle (BNKPC/BNKANG) — bugfix and open items
+## Bank angle (BNKPC/BNKANG) — bugfix, CONFIRMED WORKING
 
 **Symptom** (from the author's analysis of all 32 `.out`/`.log` files):
 `BNKPC` echoed as `[0.0, 0.0, 0.0, 0.0]` and `bnkang` printed as `0.0` at
@@ -40,9 +40,7 @@ instead of MSL's real ~E+259 s / 12.1 km (Karlgaard et al.); and only 1 of
 16 rigid runs (`d4.5_m900`) even got through chute deploy → heat-shield
 sep → handoff before hitting the `ALTMIN` safety net early.
 
-**Fix, now CONFIRMED against the manual text** (`generate_input.py`
-changed `bnkpc = {value},` to `bnkpc(1) = {value},`). The author supplied
-the manual's own entries:
+Manual text the author supplied, used to work out the fix:
 
 > `ALPARG`/`BETARG`/`BNKARG`: names of the variables used as arguments in
 > the cubic polynomials for angle of attack, sideslip, and bank. Used if
@@ -65,38 +63,26 @@ This also explains the original bug: the broken deck's bare
 `bnkpc = <val>,` (no index) matches neither the scalar `BNKANG` variable
 name nor the indexed `BNKPC(i)` array, so POST2 silently matched nothing.
 
-**Attempt 2 (`bnkpc(1) = {value},`, indexed single-element) was tested
-against a real run and CONFIRMED NOT TO WORK** — `max_abs_bnkang_deg`
-came back `0.0` and the skip (`max_altitude_after_peak_decel_m`) was
-unchanged at ~33,594 m, identical to the original bug. The line was again
-silently accepted with no error and no effect, same symptom as the
-original bare `bnkpc = <val>,` form.
+Two syntax attempts were tried and ruled out against real runs before
+landing on the fix:
 
-**Attempt 3 (current)**: sets both the direct initial value (`bnkang =
-{value},`, per the manual's separate `ALPHA`/`BETA`/`BNKANG` entry) AND
-the full 4-value `BNKPC` array as one comma-separated literal
-(`bnkpc = {value}, 0.0, 0.0, 0.0,`) instead of indexed element access —
-on the theory that POST2's free-form parser wants the whole array
-assigned at once (matching how other multi-value inputs are written
-elsewhere in this deck), since indexed access was silently accepted but
-inert both times it was tried. **STILL UNVERIFIED** — needs another real
-test run:
-```
-python batch_runner.py --only rigid_d4.5_m900 --exe "<path to post2_windows_commercial.exe>"
-```
-then check the new `max_abs_bnkang_deg` and `max_altitude_after_peak_decel_m`
-columns in `phase0_summary.csv` directly (faster than reading the raw
-`.out`):
-```
-python -c "import csv; r=list(csv.DictReader(open('results/phase0_summary.csv')))[0]; print('max_abs_bnkang_deg =', r['max_abs_bnkang_deg']); print('max_altitude_after_peak_decel_m =', r['max_altitude_after_peak_decel_m'])"
-```
-`max_abs_bnkang_deg` should read ~15, not `0.0`, and the skip altitude
-should drop well below ~33,594 m. If this attempt also fails, the next
-thing needed is the manual's `IGUID(1)` entry itself (its full value
-list and default) — the `ALPARG`/`BETARG`/`BNKARG` text already supplied
-only describes what happens *if* `IGUID(1)` is `-1` or `0`, not what
-`IGUID(1)` actually defaults to or what other values mean, so it's worth
-checking whether guidance is active at all without explicitly setting it.
+- **Attempt 1** (original, broken): bare `bnkpc = {value},`, no index.
+  Matches neither the scalar `BNKANG` variable name nor the indexed
+  `BNKPC(i)` array — POST2 silently matched nothing. `BNKPC` echoed
+  `[0,0,0,0]`, `bnkang` stayed `0.0` in all 32 runs.
+- **Attempt 2**: indexed single-element `bnkpc(1) = {value},`. Tested
+  against a real run: still `max_abs_bnkang_deg = 0.0`, skip altitude
+  unchanged at ~33,594 m — silently accepted, still no effect.
+- **Attempt 3 — CONFIRMED WORKING**: sets BOTH the direct initial value
+  (`bnkang = {value},`, per the manual's separate `ALPHA`/`BETA`/`BNKANG`
+  entry) AND the full 4-value `BNKPC` array as one comma-separated
+  literal (`bnkpc = {value}, 0.0, 0.0, 0.0,`), not indexed element access.
+  Tested against a real `rigid_d4.5_m900` run: `max_abs_bnkang_deg =
+  15.0` (matching the commanded value exactly), and the skip dropped from
+  ~33,594 m to ~31,574 m (a real but partial reduction — expected, since
+  15° alone isn't necessarily enough to fully flatten the skip; that's
+  exactly what the Task 2 sweep below is for). **This is the syntax now
+  used in `generate_input.py`.**
 
 **Sign convention**: per the manual, positive `BNKANG` banks to the
 right. Doesn't affect vertical-plane behavior (peak g, skip magnitude,
