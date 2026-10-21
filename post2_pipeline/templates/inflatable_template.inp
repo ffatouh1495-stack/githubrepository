@@ -304,7 +304,7 @@ clt = 'clt', monovar, mach, 0, lin_inp, xtrap,
 24.4014, 0.3591,  24.507, 0.3597,  24.6127, 0.3598,  24.7183, 0.3598,
 24.8239, 0.3597,  24.9824, 0.3592,  25.088, 0.3597,  25.2817, 0.3596,
 25.5634, 0.3579,  30.5634, 0.3579,
-bnkang = 15.0,   // deg; CONFIRMED WORKING against a real run (max_abs_bnkang_deg
+bnkang = 60.0,   // deg; CONFIRMED WORKING against a real run (max_abs_bnkang_deg
                       // = 15.0 printed in the actual trajectory, after two earlier syntax
                       // guesses -- bare `bnkpc = <val>,` and indexed `bnkpc(1) = <val>,` --
                       // were both silently accepted by POST2 but had zero effect). The fix is
@@ -315,7 +315,7 @@ bnkang = 15.0,   // deg; CONFIRMED WORKING against a real run (max_abs_bnkang_de
                       // once. Sign convention: manual states positive BNKANG banks right;
                       // doesn't affect vertical-plane behavior (peak g, skip, Mach-1.7 state),
                       // only lateral drift.
-bnkpc = 15.0, 0.0, 0.0, 0.0,   // deg; full array literal (constant, linear, quadratic, cubic terms)
+bnkpc = 60.0, 0.0, 0.0, 0.0,   // deg; full array literal (constant, linear, quadratic, cubic terms)
 event = 50,           // parachute deployment
 critr = 'mach',       // Mach-number trigger (NOT altitude or time), per spec
 value = 1.7,   // MSL's real chute-deploy Mach (Karlgaard et al.)

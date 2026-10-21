@@ -141,10 +141,21 @@ HANDOFF_GDALT_M = GALE_SURFACE_GDALT_M + HANDOFF_ALTITUDE_ABOVE_SURFACE_M       
 HANDOFF_GDALT_FT = GALE_SURFACE_GDALT_FT + HANDOFF_ALTITUDE_ABOVE_SURFACE_FT    # -6742.13
 HANDOFF_REFERENCE_VELOCITY_MPS = 78.9  # Fig. 2 labeled value, surface-relative
 
-# Bank angle -- NOT covered by the manual-confirmed sections of the spec.
-# Syntax/sign convention PENDING verification (see mars_environment.py /
-# generate_input.py). Magnitude from Brandenburg et al. Table 1.
-BANK_ANGLE_DEG = 15.0
+# Bank angle -- AUTHOR DECISION (not sourced from MSL literature), fixed
+# for the whole entry phase, chosen 2025-10 after bank_sweep.py's 0/15/30/
+# 45/60/70 deg comparison against the MSL reference (Karlgaard et al.:
+# Mach 1.7 at ~12.1 km above ground / ~E+259 s, no skip, handoff at
+# 78.9 m/s). No fixed angle in the sweep fully matched the reference
+# (MSL flew a time-varying, closed-loop bank profile, not a fixed angle),
+# so this is an explicit simplification, not a sourced value. 60 deg was
+# the best available compromise: closest Mach-1.7 timing to MSL's ~E+259s
+# (240.3 s) among angles that also meaningfully reduced the skip (max
+# altitude after peak deceleration: 33.6 km at 0 deg -> 20.7 km at 60 deg,
+# vs. 20.0 km at 70 deg for comparison). Sign convention (manual: positive
+# BNKANG banks right) still PENDING -- doesn't affect vertical-plane
+# results (peak g, skip, Mach-1.7/handoff state), only lateral drift.
+# See README "Bank angle (BNKPC/BNKANG)" for the full sweep table.
+BANK_ANGLE_DEG = 60.0
 
 # ---------------------------------------------------------------------------
 # Mass model (metric -- mass itself is never a direct POST2 input; only

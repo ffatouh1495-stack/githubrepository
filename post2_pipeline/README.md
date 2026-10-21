@@ -6,24 +6,30 @@ same fixed wind for all 32, ending at the MSL powered-descent handoff
 point (not simulating powered descent/sky crane). Built against
 `phase0_spec_for_claude_code1.md`.
 
-## Current status: 32-RUN GRID INVALIDATED — bank angle was never applied
+## Current status: bank angle fixed at 60° (author decision) — grid re-run pending
 
-**The full 32-run grid completed (32/32 `status: ok`) but the author's own
-analysis of the raw `.out`/`.log` files found that `bnkang` was 0.0 at
-every integration step in all 32 runs**, despite `bnkpc = 15.0,` being in
-every `.inp` deck. With bank at 0, lift points straight up for the whole
-entry instead of being rolled off-vertical, so every vehicle skips badly
-(dives in, pulls out, climbs back up tens of km, falls again much later)
-instead of flying a realistic entry. This invalidates all 32 runs'
-physics — the pipeline mechanics (file I/O, event sequencing, status
-classification) are sound, but the trajectories themselves are wrong.
-**Do not use the first 32-run grid's results.**
+**The original 32-run grid is invalidated and must not be used** — its
+bank angle was never actually applied (see "Bank angle" section below for
+the full story). The bug is fixed and confirmed against a real run, and
+the author has now locked in **60°** as the fixed bank angle for the
+whole entry phase, based on the `bank_sweep.py` comparison (0/15/30/45/
+60/70°) against the MSL reference. `config.BANK_ANGLE_DEG = 60.0`.
 
-Root cause and fix: see "Bank angle (BNKPC/BNKANG) — bugfix and open
-items" below. **Status: FIX CONFIRMED WORKING against a real run**
-(`max_abs_bnkang_deg = 15.0`, matching the commanded value) — **the
-32-run grid should be re-run** once the Task 2 bank sweep (below) picks a
-final bank angle.
+**This is an explicit author simplification, not a sourced value**: no
+single fixed bank angle in the sweep fully matched MSL's real trajectory
+(Mach 1.7 at ~12.1 km above ground / ~E+259 s, no skip) — MSL actually
+flew a time-varying, closed-loop bank profile, which is out of scope for
+this fixed-wind Phase 0 trade study. 60° was the best available
+compromise: its Mach-1.7 timing (240.3 s) was closest to MSL's ~E+259 s
+among the angles that also meaningfully reduced the skip (33.6 km → 20.7
+km), without going all the way to 70° (20.0 km skip, but overshoots the
+timing target faster, to 204.8 s). See the full sweep table below.
+
+**Next step: re-run the full 32-scenario grid** with this bank angle —
+`python batch_runner.py` (no `--only`/`--design` flags). The single-case
+verification should be re-checked on the new baseline first if you want
+extra confidence, but the bank fix and angle choice are both already
+confirmed against real runs at this point.
 
 ## Bank angle (BNKPC/BNKANG) — bugfix, CONFIRMED WORKING
 
@@ -98,9 +104,32 @@ altitude reached after peak deceleration (skip indicator — should be flat
 near peak-decel altitude for a non-skipping entry), chute-deploy state
 (time/altitude/altitude-above-surface/Mach/velocity), heat-shield-sep
 state, handoff state (time/velocity), `handoff_reached`, and
-`last_event_number_reached`. It does not choose a bank angle — that
-stays an author decision, to be made with your mentor and recorded as an
-explicit assumption, not inferred by the pipeline.
+`last_event_number_reached`. It does not choose a bank angle itself.
+
+**Sweep results** (`rigid_d4.5_m900`, real POST2 run, all `status: ok`):
+
+| Bank (deg) | Peak decel (g) | Peak dynp (kPa) | Skip: max alt after peak decel (km) | Mach 1.7 time (s) | Mach 1.7 alt above ground (km) | Handoff time (s) | Handoff vel (m/s) |
+|---|---|---|---|---|---|---|---|
+| 0  | 10.10 | 13.52 | 33.6 | 444.5 | 5.53 | 485.3 | 85.6 |
+| 15 | 10.18 | 13.62 | 31.6 | 428.7 | 5.50 | 468.4 | 86.6 |
+| 30 | 10.42 | 13.93 | 26.1 | 384.0 | 5.89 | 426.0 | 87.3 |
+| 45 | 10.82 | 14.46 | 22.0 | 315.2 | 7.41 | 373.2 | 86.6 |
+| **60** | **11.36** | **15.22** | **20.7** | **240.3** | **7.52** | **305.4** | **86.4** |
+| 70 | 11.83 | 15.85 | 20.0 | 204.8 | 5.18 | 247.3 | 86.3 |
+| MSL target | — | — | ~0 (no skip) | ~259 (± a few s) | ~12.1 | — | 78.9 |
+
+**Author decision: 60° is now locked in** (`config.BANK_ANGLE_DEG =
+60.0`) as the fixed bank angle for all 32 Phase 0 scenarios. No angle in
+the sweep fully matches MSL's reference (MSL flew a time-varying,
+closed-loop bank profile — out of scope here); 60° gives the closest
+Mach-1.7 timing to MSL's ~E+259 s among angles that also meaningfully cut
+the skip. This is an explicit author assumption, not a sourced value —
+see `config.py`'s `BANK_ANGLE_DEG` comment for the full reasoning. The
+absolute numbers (skip magnitude, exact Mach-1.7 altitude, handoff
+velocity ~86 vs. MSL's 78.9 m/s) will not closely match MSL's real
+trajectory at any fixed bank angle; the 32-scenario grid's value is in
+the *relative* comparison across designs/diameters/masses under this
+consistent scheme, not in matching MSL's absolute numbers.
 
 ## Previous status (now superseded): VALIDATED — single-case verification passed (rigid_d4.5_m900)
 
