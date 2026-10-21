@@ -158,6 +158,10 @@ def main():
     parser.add_argument("--output-dir", default=config.OUTPUT_ROOT, help="Where .inp/.out/.log files and the summary/manifest CSVs go")
     parser.add_argument("--design", choices=list(config.DESIGNS), default=None,
                          help="Restrict to one design (for testing); default runs both (32 total)")
+    parser.add_argument("--only", default=None, metavar="SCENARIO_ID",
+                         help="Run exactly one scenario by its scenario_id, e.g. "
+                              "rigid_d4.5_m900 (the required single-case verification "
+                              "before the full 32-run grid). Overrides --design.")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -168,10 +172,22 @@ def main():
             os.path.join(args.output_dir, os.path.basename(config.MARS_ATMOSPHERE_CSV)),
         )
 
-    scenarios = [
-        (d, dia, m) for d, dia, m in iter_scenarios()
-        if args.design is None or d == args.design
-    ]
+    if args.only:
+        scenarios = [
+            (d, dia, m) for d, dia, m in iter_scenarios()
+            if generate_input.scenario_id(d, dia, m) == args.only
+        ]
+        if not scenarios:
+            all_ids = [generate_input.scenario_id(d, dia, m) for d, dia, m in iter_scenarios()]
+            parser.error(
+                f"--only {args.only!r} matched no scenario. Valid scenario_ids:\n  "
+                + "\n  ".join(all_ids)
+            )
+    else:
+        scenarios = [
+            (d, dia, m) for d, dia, m in iter_scenarios()
+            if args.design is None or d == args.design
+        ]
 
     print(f"Phase 0: {len(scenarios)} scenario(s) queued. Output dir: {args.output_dir}")
 
