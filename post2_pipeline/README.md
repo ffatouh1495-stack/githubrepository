@@ -100,9 +100,14 @@ but not confirmed, and flagged `PENDING verify` in code/deck comments:
   hand (`tan(gclat) = (1-f)² tan(gdlat)`, Mars flattening f≈0.0058860),
   giving `gclat = -3.8727°`. If POST2 has a geodetic-latitude input
   option instead, use `EI_GDLAT_DEG` directly.
-- **Bank angle syntax**: `bnkpc = 'bnkpc', constant, 0, 15.0,` by analogy
-  with the validated `cdt`/`clt` mechanism — not itself confirmed in the
-  manual-cited sections, including the sign convention.
+- **Bank angle syntax**: ~~`bnkpc = 'bnkpc', constant, 0, 15.0,`~~ — tried
+  this first (by analogy with `cdt`/`clt`) and the first real test run
+  rejected it: `*** ERROR *** Unrecognized char data[bnkpc] in numerical
+  input[bnkpc]`. `BNKPC` is a plain scalar input, not a named table (this
+  matches Example 1B's output, where `BNKPC` printed as a bare 4-number
+  array, not a table). Fixed to `bnkpc = 15.0,`. **Sign convention is
+  still unconfirmed** — check the first successful run's printed `bnkang`
+  against the expected direction before trusting lift-related results.
 - **`ALTMIN` as a global safety net**: set to the handoff `GDALT` so a
   scenario that never separates its heat shield (a valid, expected
   outcome per spec) still terminates at the handoff altitude instead of
