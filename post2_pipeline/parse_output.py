@@ -179,14 +179,44 @@ def run_vacuum_checks(rows: List[Dict]) -> Dict:
     cross_match = _atmosphere_cross_match()
     density_match = {"checked": False}
     if cross_match.get("available"):
-        # Find the row closest to each target altitude (10/40/80 km) and
-        # compare its printed density against the table's interpolated value.
+        # POST2 only prints rows at whatever altitude the trajectory
+        # happens to be at each integration step, not at exact round-km
+        # altitudes -- the nearest printed row to a target altitude can
+        # be several hundred meters off, and since density falls off
+        # fast with altitude, that gap alone can look like a multi-percent
+        # "mismatch" even when the atmosphere model is working correctly
+        # (confirmed against a real run: 486 m gap at the 40 km mark
+        # produced a ~5.6% apparent error on its own). So interpolate the
+        # PRINTED density between the two rows bracketing the target
+        # altitude, to compare like-for-like against the table's value at
+        # that exact altitude, rather than comparing to the nearest row's
+        # own (different) altitude.
+        sorted_by_alt = sorted(
+            ((r["gdalt"], r.get("dens")) for r in rows if "dens" in r),
+            key=lambda t: t[0],
+        )
+
+        def _printed_dens_at(target_ft):
+            if not sorted_by_alt:
+                return None
+            if target_ft <= sorted_by_alt[0][0]:
+                return sorted_by_alt[0][1]
+            if target_ft >= sorted_by_alt[-1][0]:
+                return sorted_by_alt[-1][1]
+            for (a0, d0), (a1, d1) in zip(sorted_by_alt, sorted_by_alt[1:]):
+                if a0 <= target_ft <= a1:
+                    if a1 == a0:
+                        return d0
+                    frac = (target_ft - a0) / (a1 - a0)
+                    return d0 + frac * (d1 - d0)
+            return sorted_by_alt[-1][1]
+
         results = {}
         all_ok = True
         for km, exp in cross_match["expected"].items():
             target_ft = km * 1000.0 * config.SPEC_M_TO_FT
             closest = min(rows, key=lambda r: abs(r["gdalt"] - target_ft))
-            printed_dens = closest.get("dens")
+            printed_dens = _printed_dens_at(target_ft)
             expected_dens = exp["dens_slugft3"]
             rel_err = None
             ok = False
