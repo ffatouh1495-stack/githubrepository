@@ -6,7 +6,90 @@ same fixed wind for all 32, ending at the MSL powered-descent handoff
 point (not simulating powered descent/sky crane). Built against
 `phase0_spec_for_claude_code1.md`.
 
-## Current status: VALIDATED — single-case verification passed (rigid_d4.5_m900)
+## Current status: 32-RUN GRID INVALIDATED — bank angle was never applied
+
+**The full 32-run grid completed (32/32 `status: ok`) but the author's own
+analysis of the raw `.out`/`.log` files found that `bnkang` was 0.0 at
+every integration step in all 32 runs**, despite `bnkpc = 15.0,` being in
+every `.inp` deck. With bank at 0, lift points straight up for the whole
+entry instead of being rolled off-vertical, so every vehicle skips badly
+(dives in, pulls out, climbs back up tens of km, falls again much later)
+instead of flying a realistic entry. This invalidates all 32 runs'
+physics — the pipeline mechanics (file I/O, event sequencing, status
+classification) are sound, but the trajectories themselves are wrong.
+**Do not use the first 32-run grid's results.**
+
+Root cause and fix: see "Bank angle (BNKPC/BNKANG) — bugfix and open
+items" below. **Status: fix applied but UNVERIFIED — needs one real test
+run before the bank sweep (Task 2) or a grid re-run.**
+
+## Bank angle (BNKPC/BNKANG) — bugfix and open items
+
+**Symptom** (from the author's analysis of all 32 `.out`/`.log` files):
+`BNKPC` echoed as `[0.0, 0.0, 0.0, 0.0]` and `bnkang` printed as `0.0` at
+every step, in every run, despite `bnkpc = 15.0,` in every `.inp` deck.
+POST2 accepted that line without any syntax error — it was silently
+ignored rather than rejected, exactly the "silent wrong-physics" failure
+mode this project has tried hardest to avoid. Consequences in the data:
+baseline (`rigid_d4.5_m900`) climbs from ~20 km back up to ~33.6 km after
+peak deceleration instead of flying a controlled descent; the 15 m HIAD
+climbs to ~50 km; chute deploy (Mach 1.7) happens at t=444 s / 5.5 km
+instead of MSL's real ~E+259 s / 12.1 km (Karlgaard et al.); and only 1 of
+16 rigid runs (`d4.5_m900`) even got through chute deploy → heat-shield
+sep → handoff before hitting the `ALTMIN` safety net early.
+
+**Fix attempted** (`generate_input.py`): changed `bnkpc = {value},` to
+`bnkpc(1) = {value},` — an explicit array-index assignment to element 1
+(the constant/c0 term) rather than a bare assignment to the whole `BNKPC`
+array. `BNKPC`'s own echo as a 4-element array (polynomial coefficients)
+suggests the bare form either wasn't recognized as a valid assignment to
+that element, or was overwritten by a default afterward; indexed
+assignment is the same mechanism already confirmed working for `cdt`/`clt`
+table rows elsewhere in this deck, so it's the most likely fix, but **it
+is UNVERIFIED** — I don't have the POST2 manual text to confirm this is
+the right syntax, and the first attempt at `bnkpc` syntax earlier in this
+project (the `'bnkpc', constant, 0, <val>,` table form) was also wrong.
+
+**Before running the Task 2 bank sweep or any grid re-run**, run ONE test
+scenario and check its `.out` file directly:
+```
+python batch_runner.py --only rigid_d4.5_m900 --exe "<path to post2_windows_commercial.exe>"
+```
+Then check, in `results\rigid\rigid_d4.5_m900.out`:
+1. Does the echoed `BNKPC` array show `15.0` in the first position (not
+   `[0,0,0,0]`)?
+2. Does `bnkang` in the per-step printed rows actually read ~15 (or -15,
+   depending on sign) during Phase 1, not 0.0?
+
+If both are true, the fix worked — proceed to `bank_sweep.py` (added this
+session, see below). **If `bnkang` is still 0.0**, the next things to try,
+in order, are: (a) `bnkang = {value},` as a direct initial-value
+assignment instead of `bnkpc(1)`, and (b) an `IGUID(1)` guidance-mode flag
+(manual section 6.a, the `BNKPC`/`BNKANG`/`IGUID(1)` entries around lines
+13255–13275) that may need to be set before POST2 will read `BNKPC` into
+`bnkang` at all — if you have the manual text for that section handy,
+pasting it here would let me get this right on the first try instead of
+guessing again.
+
+**Sign convention**: per the manual, positive `BNKANG` banks to the
+right. Doesn't affect vertical-plane behavior (peak g, skip magnitude,
+Mach-1.7 state, handoff state) — only lateral/crossrange drift — but
+should be recorded once confirmed rather than left as an unstated
+assumption.
+
+**`bank_sweep.py`** (new this session): runs `rigid_d4.5_m900` ONLY (not
+the full grid) across bank = 0/15/30/45/60/70 deg (configurable via
+`--angles`), and writes `results/bank_sweep/bank_sweep_summary.csv` with,
+per angle: peak deceleration (g and time), peak dynamic pressure, max
+altitude reached after peak deceleration (skip indicator — should be flat
+near peak-decel altitude for a non-skipping entry), chute-deploy state
+(time/altitude/altitude-above-surface/Mach/velocity), heat-shield-sep
+state, handoff state (time/velocity), `handoff_reached`, and
+`last_event_number_reached`. It does not choose a bank angle — that
+stays an author decision, to be made with your mentor and recorded as an
+explicit assumption, not inferred by the pipeline.
+
+## Previous status (now superseded): VALIDATED — single-case verification passed (rigid_d4.5_m900)
 
 `rigid_d4.5_m900` ran successfully end-to-end on the Windows machine and
 now reports `status: ok` in `phase0_summary.csv`, with all 4 implemented
@@ -31,6 +114,43 @@ nominal handoff criterion.
 Per spec, the required single-case verification before the 32-run grid is
 now complete. Remaining open items (chute CD digitization, wind-active
 check #4, a few PENDING-verify constants) are non-blocking — see below.
+
+## Pipeline cleanups from the full-32-run review (this session)
+
+The author's review of all 32 `.out`/`.log` files also surfaced pipeline
+classification gaps (separate from the bank-angle physics bug above):
+
+- **`status` didn't require reaching the handoff point.** A run that
+  skipped and never separated its heat shield before hitting `ALTMIN`
+  could still show `status: ok` if the 4 implemented vacuum checks
+  happened to pass — it never actually checked whether the vehicle got
+  through the intended event sequence. **Fixed**: `parse_metrics()` now
+  computes `handoff_reached` (`True` only if both chute deploy and
+  heat-shield separation occurred before the run ended), and
+  `batch_runner.py`'s status logic gates on it first — `handoff_not_reached`
+  is now a distinct, explicit failure status, checked before the vacuum
+  checks, not folded into `vacuum_check_failed` or missed entirely.
+- **No record of which POST2 event the run actually reached.** Added
+  `last_event_number_reached`, parsed from CHKTERM's own `ESN=` value
+  when a run terminates via `ALTMIN` (more reliable than relying on
+  "Begin Phase" markers, since `ALTMIN` and the event-100 criterion can
+  race and ALTMIN sometimes wins by one integration step even on an
+  otherwise-correct run — this is the race condition behind "Terminated
+  Abnormally" showing up on runs where event 100 effectively fired in the
+  same step").
+- **New per-run diagnostic fields** (all in `phase0_summary.csv` now):
+  `peak_deceleration_time_s`, `max_altitude_after_peak_decel_m` (the skip
+  indicator — how high the vehicle climbed back up after peak
+  deceleration; should stay flat/near-zero for a non-skipping entry),
+  `max_abs_bnkang_deg` (confirms whether a nonzero bank was actually
+  applied, once the fix above is verified), `chute_deploy_time_s`, and
+  `chute_deploy_altitude_above_surface_m`.
+- **ALTMIN-vs-event-100 race**: rather than trying to tune `ALTMIN` to sit
+  just below the handoff altitude (unreliable — `dt=1.0` s integration
+  steps can cover hundreds of ft of altitude, so a small margin doesn't
+  reliably avoid the race), classification now relies on the physical
+  signals above (`handoff_reached`, `last_event_number_reached`) instead
+  of which message POST2 happened to print. `ALTMIN` itself is unchanged.
 
 ## Bugs found from real POST2 output (fixed)
 
@@ -285,6 +405,21 @@ post2_pipeline/
   459,317.6 ft), areoid-referenced, uncorrected for the ~0.43 km
   areoid-to-ellipsoid offset, per spec.
 - **No heating**: Sutton-Graves/heat-rate calculation removed entirely.
+
+## Known simplifications
+
+- **Chute opening is instant** — the combined post-chute-deploy drag table
+  (`aero_data.combined_post_chute_cd_table`) applies full chute CD from
+  the moment of deployment, with no inflation ramp/transient. This
+  overstates the deceleration spike right at deploy and understates how
+  long it takes the chute to reach full drag. Left as-is for Phase 0 (and
+  the bank-angle work) — would need a time- or Mach-indexed ramp-up table
+  to model properly.
+- **Parachute CD-vs-Mach table is still a 4-point placeholder** built from
+  the spec's prose description of Cruz et al. Fig. 9, not a true
+  digitization of the figure. Affects post-chute-deploy drag magnitude.
+- **Wind-active vacuum check (#4) is not implemented** — see "Items still
+  needing manual verification."
 
 ## Required outputs → where they come from
 

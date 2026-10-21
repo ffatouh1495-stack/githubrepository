@@ -25,6 +25,14 @@ import generate_input
 
 _TOKEN_RE = re.compile(r"\b([a-z][a-z0-9]*)\s+([+-]?\d+\.\d+[eE][+-]?\d+)")
 _PHASE_RE = re.compile(r"Begin Phase\s+([\d.]+)")
+# CHKTERM's own "ESN=" (event sequence number) tells us which event the
+# integrator was actually in when an ALTMIN/other safety-net termination
+# fired -- more reliable than "Begin Phase" markers for telling whether a
+# run that hit ALTMIN had already reached event 100 (handoff) or was still
+# stuck in an earlier event (e.g. ESN=70, never made it past heat-shield
+# separation) when the race between ALTMIN and the event-100 criterion was
+# decided. Confirmed against a real run: "...ESN= 70.000; VEH= 1."
+_ESN_RE = re.compile(r"ESN=\s*([\d.]+)")
 _SUMMARY_RE = re.compile(
     r"POST2 (Completed|Terminated Abnormally) with (\d+) Warnings? and (\d+) Errors?",
     re.IGNORECASE,
@@ -287,10 +295,40 @@ def parse_metrics(text: str, diameter_m: float, payload_mass_kg: float) -> Dict:
     heatshield_row = first_row_of_phase(heatshield_phase)
     handoff_row = max(rows, key=lambda r: r["time"])
 
+    chute_deployed = chute_phase is not None
     heat_shield_never_separated = heatshield_phase is None
+    heat_shield_separated = not heat_shield_never_separated
+
+    # "Handoff reached" per the author's own criterion: the vehicle got
+    # through the full intended sequence (chute deployed, then heat shield
+    # separated) before the run ended -- NOT literally whether POST2's
+    # event counter reached exactly 100, since ALTMIN and the event-100
+    # criterion can race (same altitude, by design) and ALTMIN sometimes
+    # wins by one integration step even on an otherwise-correct run. A run
+    # that skipped and never got the heat shield off before terminating is
+    # a real failure, not just a missed formality.
+    handoff_reached = chute_deployed and heat_shield_separated
+
+    esn_matches = _ESN_RE.findall(text)
+    last_event_number_reached = float(esn_matches[-1]) if esn_matches else handoff_row.get("_phase")
+
+    rows_by_time = sorted(rows, key=lambda r: r["time"])
+    decel_g_by_row = [(r, _sensed_accel_g(r)) for r in rows_by_time]
+    peak_decel_row, peak_decel_g = max(decel_g_by_row, key=lambda t: t[1])
+    peak_decel_idx = rows_by_time.index(peak_decel_row)
+    rows_after_peak_decel = rows_by_time[peak_decel_idx + 1:]
+    # Skip indicator: how high the vehicle climbed back up after peak
+    # deceleration -- should stay near zero/flat for a correctly-banked,
+    # non-skipping entry. A large positive value here is exactly the
+    # "climbs from 20 km back to 33.6 km" symptom from the zero-bank bug.
+    max_altitude_after_peak_decel_m = _ft_to_m(
+        max((r["gdalt"] for r in rows_after_peak_decel), default=peak_decel_row["gdalt"])
+    )
+
+    bnkang_values = [r["bnkang"] for r in rows if "bnkang" in r]
+    max_abs_bnkang_deg = max((abs(v) for v in bnkang_values), default=None)
 
     peak_dynp_pa = _lbft2_to_pa(max(r.get("dynp", 0.0) for r in rows))
-    peak_decel_g = max(_sensed_accel_g(r) for r in rows)
 
     total_mass = generate_input.total_entry_mass_kg(payload_mass_kg)
     bc_kg_m2 = generate_input.ballistic_coefficient(diameter_m, payload_mass_kg)
@@ -319,7 +357,13 @@ def parse_metrics(text: str, diameter_m: float, payload_mass_kg: float) -> Dict:
         "ballistic_coefficient_kg_m2": bc_kg_m2,
 
         "peak_deceleration_g": peak_decel_g,
+        "peak_deceleration_time_s": peak_decel_row["time"],
         "peak_dynamic_pressure_pa": peak_dynp_pa,
+        "max_altitude_after_peak_decel_m": max_altitude_after_peak_decel_m,
+        "max_abs_bnkang_deg": max_abs_bnkang_deg,
+
+        "last_event_number_reached": last_event_number_reached,
+        "handoff_reached": handoff_reached,
 
         "handoff_time_s": handoff_row["time"],
         "handoff_gdalt_m": _ft_to_m(handoff_row.get("gdalt")),
@@ -329,13 +373,17 @@ def parse_metrics(text: str, diameter_m: float, payload_mass_kg: float) -> Dict:
         "handoff_mach": handoff_row.get("mach"),
         "handoff_phase": handoff_row.get("_phase"),
 
+        "chute_deploy_time_s": deploy_row.get("time") if deploy_row else None,
         "chute_deploy_altitude_m": _ft_to_m(deploy_row.get("gdalt")) if deploy_row else None,
+        "chute_deploy_altitude_above_surface_m": (
+            _ft_to_m(deploy_row.get("gdalt", 0.0)) - config.GALE_SURFACE_GDALT_M if deploy_row else None
+        ),
         "chute_deploy_mach": deploy_row.get("mach") if deploy_row else None,
         "chute_deploy_dynp_pa": _lbft2_to_pa(deploy_row.get("dynp")) if deploy_row else None,
         "chute_deploy_velocity_relative_mps": _ft_to_m(deploy_row.get("velr")) if deploy_row else None,
         "chute_opening_force_n": opening_force_n,
 
-        "heat_shield_separated": not heat_shield_never_separated,
+        "heat_shield_separated": heat_shield_separated,
         "heat_shield_sep_altitude_m": _ft_to_m(heatshield_row.get("gdalt")) if heatshield_row else None,
         "heat_shield_sep_mach": heatshield_row.get("mach") if heatshield_row else None,
         "heat_shield_sep_velocity_relative_mps": _ft_to_m(heatshield_row.get("velr")) if heatshield_row else None,

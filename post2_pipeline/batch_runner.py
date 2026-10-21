@@ -30,10 +30,13 @@ SUMMARY_CSV_FIELDS = [
     "post2_warnings", "post2_errors", "post2_termination_mode", "status", "error_message",
 
     "ballistic_coefficient_kg_m2",
-    "peak_deceleration_g", "peak_dynamic_pressure_pa",
+    "peak_deceleration_g", "peak_deceleration_time_s", "peak_dynamic_pressure_pa",
+    "max_altitude_after_peak_decel_m", "max_abs_bnkang_deg",
+    "last_event_number_reached", "handoff_reached",
 
-    "chute_deploy_altitude_m", "chute_deploy_mach", "chute_deploy_dynp_pa",
-    "chute_deploy_velocity_relative_mps", "chute_opening_force_n",
+    "chute_deploy_time_s", "chute_deploy_altitude_m",
+    "chute_deploy_altitude_above_surface_m", "chute_deploy_mach",
+    "chute_deploy_dynp_pa", "chute_deploy_velocity_relative_mps", "chute_opening_force_n",
 
     "heat_shield_separated", "heat_shield_sep_altitude_m",
     "heat_shield_sep_mach", "heat_shield_sep_velocity_relative_mps",
@@ -148,7 +151,17 @@ def run_one(design, diameter_m, payload_mass_kg, output_root, exe_path):
         and metrics["vacuum_check_mars_gravity"]
         and metrics["vacuum_check_within_table_range"]
     )
-    row["status"] = "ok" if implemented_checks_pass else "vacuum_check_failed"
+    # Reaching the handoff point (chute deployed, then heat shield
+    # separated, before the run ended) is a harder requirement than the 4
+    # vacuum checks above and gates first: a run that skips and never gets
+    # the heat shield off is a failure regardless of whether the
+    # atmosphere/gravity/density checks happen to pass along the way.
+    if not metrics["handoff_reached"]:
+        row["status"] = "handoff_not_reached"
+    elif not implemented_checks_pass:
+        row["status"] = "vacuum_check_failed"
+    else:
+        row["status"] = "ok"
     row["_vacuum_checks_detail"] = vacuum_checks_detail
     return row
 

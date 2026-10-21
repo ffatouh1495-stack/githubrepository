@@ -66,6 +66,7 @@ def build_input_deck(
     payload_mass_kg: float,
     wind_speed_mps: float = config.WIND_SPEED_MPS,
     wind_direction_deg: float = config.WIND_DIRECTION_DEG,
+    bank_angle_deg: float = config.BANK_ANGLE_DEG,
     _preview: bool = False,
 ) -> str:
     """
@@ -73,6 +74,11 @@ def build_input_deck(
 
     Raises mars_environment.MarsEnvironmentNotReady until
     data/mars_atmosphere_gale.csv exists.
+
+    `bank_angle_deg` overrides config.BANK_ANGLE_DEG for the entry phase
+    (event 1) only -- bank is always zeroed again at chute deploy
+    (event 50) regardless. Used by bank_sweep.py for the Task 2
+    bank-angle sweep on the baseline scenario.
     """
     if design not in config.DESIGNS:
         raise ValueError(f"Unknown design {design!r}; expected one of {list(config.DESIGNS)}")
@@ -151,10 +157,20 @@ def build_input_deck(
         "npc(8) = 2,           // use drag, lift, & side force coefficients",
         aero_data.cd_table_lines(),
         aero_data.cl_table_lines(),
-        f"bnkpc = {config.BANK_ANGLE_DEG},   // deg; PENDING verify sign convention (not in the manual-confirmed",
-        "                      // sections) -- fixed after a real run showed bnkpc is a plain scalar/array",
-        "                      // input, NOT a named table (POST2 rejected the 'bnkpc', constant, ... form:",
-        "                      // \"ERROR: Unrecognized char data[bnkpc] in numerical input\")",
+        f"bnkpc(1) = {bank_angle_deg},   // deg; PENDING verify -- a real 32-run grid showed BNKANG",
+        "                      // stayed 0.0 in every .out despite this line (as bare `bnkpc = <val>,`,",
+        "                      // which POST2 silently accepted but did not apply -- BNKPC echoed as",
+        "                      // [0,0,0,0] regardless). BNKPC is echoed as a 4-element array (polynomial",
+        "                      // coefficients), so this now targets element 1 (the constant/c0 term)",
+        "                      // explicitly by index. UNVERIFIED until a real run's .out is checked for",
+        "                      // a nonzero echoed BNKPC and nonzero printed bnkang -- see README. If this",
+        "                      // still doesn't work, the next things to try are `bnkang = <val>,` as a",
+        "                      // direct initial value, or an IGUID(1) guidance-mode flag (manual 6.a,",
+        "                      // BNKPC/BNKANG/IGUID(1) entries) that may need to be set before POST2",
+        "                      // will read BNKPC into bnkang at all.",
+        "                      // Sign convention: PENDING -- manual states positive BNKANG banks right;",
+        "                      // doesn't affect vertical-plane behavior (peak g, skip, Mach-1.7 state),",
+        "                      // only lateral drift, but record the sign once confirmed.",
         "event = 50,           // parachute deployment",
         "critr = 'mach',       // Mach-number trigger (NOT altitude or time), per spec",
         f"value = {config.CHUTE_DEPLOY_MACH},   // MSL's real chute-deploy Mach (Karlgaard et al.)",
@@ -164,7 +180,7 @@ def build_input_deck(
         "// aero_data.combined_post_chute_cd_table() for the derivation (unit-independent ratio).",
         combined_cd_lines,
         "clt = 'clt', constant, 0, 0.0,   // lift ends at chute deploy, per spec",
-        f"bnkpc = 0.0,   // bank moot once CL=0, zeroed for clarity",
+        f"bnkpc(1) = 0.0,   // bank moot once CL=0, zeroed for clarity",
         "event = 70,           // heat shield (aeroshell) separation",
         "critr = 'mach',",
         f"value = {config.HEATSHIELD_SEP_MACH},   // MSL's real heat-shield-sep Mach (Karlgaard et al.)",
@@ -183,8 +199,9 @@ def build_input_deck(
 
 def write_input_deck(design: str, diameter_m: float, payload_mass_kg: float, out_path: str,
                       wind_speed_mps: float = config.WIND_SPEED_MPS,
-                      wind_direction_deg: float = config.WIND_DIRECTION_DEG) -> None:
-    text = build_input_deck(design, diameter_m, payload_mass_kg, wind_speed_mps, wind_direction_deg)
+                      wind_direction_deg: float = config.WIND_DIRECTION_DEG,
+                      bank_angle_deg: float = config.BANK_ANGLE_DEG) -> None:
+    text = build_input_deck(design, diameter_m, payload_mass_kg, wind_speed_mps, wind_direction_deg, bank_angle_deg)
     with open(out_path, "w", newline="\r\n") as f:
         f.write(text)
 
