@@ -65,16 +65,38 @@ This also explains the original bug: the broken deck's bare
 `bnkpc = <val>,` (no index) matches neither the scalar `BNKANG` variable
 name nor the indexed `BNKPC(i)` array, so POST2 silently matched nothing.
 
-**Still needs one real run to confirm** (syntax is now manual-backed, but
-not yet tested against real POST2):
+**Attempt 2 (`bnkpc(1) = {value},`, indexed single-element) was tested
+against a real run and CONFIRMED NOT TO WORK** — `max_abs_bnkang_deg`
+came back `0.0` and the skip (`max_altitude_after_peak_decel_m`) was
+unchanged at ~33,594 m, identical to the original bug. The line was again
+silently accepted with no error and no effect, same symptom as the
+original bare `bnkpc = <val>,` form.
+
+**Attempt 3 (current)**: sets both the direct initial value (`bnkang =
+{value},`, per the manual's separate `ALPHA`/`BETA`/`BNKANG` entry) AND
+the full 4-value `BNKPC` array as one comma-separated literal
+(`bnkpc = {value}, 0.0, 0.0, 0.0,`) instead of indexed element access —
+on the theory that POST2's free-form parser wants the whole array
+assigned at once (matching how other multi-value inputs are written
+elsewhere in this deck), since indexed access was silently accepted but
+inert both times it was tried. **STILL UNVERIFIED** — needs another real
+test run:
 ```
 python batch_runner.py --only rigid_d4.5_m900 --exe "<path to post2_windows_commercial.exe>"
 ```
-Then check, in `results\rigid\rigid_d4.5_m900.out`: does the echoed
-`BNKPC` array show `15.0` in the first position (not `[0,0,0,0]`), and
-does `bnkang` in the per-step printed rows actually read ~15 (or -15,
-depending on sign) during Phase 1? If both are true, proceed to
-`bank_sweep.py` (added this session, see below).
+then check the new `max_abs_bnkang_deg` and `max_altitude_after_peak_decel_m`
+columns in `phase0_summary.csv` directly (faster than reading the raw
+`.out`):
+```
+python -c "import csv; r=list(csv.DictReader(open('results/phase0_summary.csv')))[0]; print('max_abs_bnkang_deg =', r['max_abs_bnkang_deg']); print('max_altitude_after_peak_decel_m =', r['max_altitude_after_peak_decel_m'])"
+```
+`max_abs_bnkang_deg` should read ~15, not `0.0`, and the skip altitude
+should drop well below ~33,594 m. If this attempt also fails, the next
+thing needed is the manual's `IGUID(1)` entry itself (its full value
+list and default) — the `ALPARG`/`BETARG`/`BNKARG` text already supplied
+only describes what happens *if* `IGUID(1)` is `-1` or `0`, not what
+`IGUID(1)` actually defaults to or what other values mean, so it's worth
+checking whether guidance is active at all without explicitly setting it.
 
 **Sign convention**: per the manual, positive `BNKANG` banks to the
 right. Doesn't affect vertical-plane behavior (peak g, skip magnitude,
