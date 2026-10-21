@@ -6,12 +6,15 @@ same fixed wind for all 32, ending at the MSL powered-descent handoff
 point (not simulating powered descent/sky crane). Built against
 `phase0_spec_for_claude_code1.md`.
 
-## Current status: VALIDATED — first real run succeeded (rigid_d4.5_m900)
+## Current status: VALIDATED — single-case verification passed (rigid_d4.5_m900)
 
-`rigid_d4.5_m900` ran successfully end-to-end on the Windows machine after
-one real bug was found and fixed (see "Bugs found from real POST2 output"
-below). All three phases executed, both Mach-triggered events fired at
-their correct Mach numbers, and the run terminated via the `ALTMIN` global
+`rigid_d4.5_m900` ran successfully end-to-end on the Windows machine and
+now reports `status: ok` in `phase0_summary.csv`, with all 4 implemented
+"no-silent-vacuum-run" checks passing (atmosphere active, decelerates,
+Mars gravity, within atmosphere table range). Three real bugs were found
+and fixed along the way (see "Bugs found from real POST2 output" below).
+All three phases executed, both Mach-triggered events fired at their
+correct Mach numbers, and the run terminated via the `ALTMIN` global
 safety net exactly at the intended handoff altitude (-6,742.13 ft, i.e.
 1.7 km above the Gale local surface) with the heat shield already
 separated. Gravity constants, entry state, atmosphere/wind tables, vehicle
@@ -24,6 +27,10 @@ single fixed-wind run with this project's placeholder chute CD table (not
 yet a true digitization of Cruz et al. Fig. 9 — see below) and the
 `ALTMIN`-triggered termination firing one integration step after the
 nominal handoff criterion.
+
+Per spec, the required single-case verification before the 32-run grid is
+now complete. Remaining open items (chute CD digitization, wind-active
+check #4, a few PENDING-verify constants) are non-blocking — see below.
 
 ## Bugs found from real POST2 output (fixed)
 
@@ -52,6 +59,32 @@ nominal handoff criterion.
   also recorded per-scenario in `phase0_summary.csv` for transparency (so
   a genuinely-abnormal, non-`ALTMIN` termination is still visible, just no
   longer conflated with the expected one).
+- **Relative-path bug hid the `ALTMIN` confirmation re-read.** The fix
+  above re-opens the `.out` file to confirm the "error" really is the
+  `ALTMIN` safety net (not a genuine POST2 error) by scanning for the
+  `Trajectory terminated by ALTMIN=` line. But `run_post2()` re-opened it
+  using `out_path` exactly as passed in by `batch_runner.py` — a bare
+  filename like `rigid_d4.5_m900.out`, relative to the scenario's own
+  scratch work directory, which is only the *subprocess's* cwd, not this
+  Python process's own cwd. The re-open silently failed (`OSError`,
+  caught and ignored), so `altmin_triggered` never got set even on the
+  real, confirmed run, and the status stayed `post2_reported_errors`.
+  **Fixed**: `out_path` is now resolved against `cwd` by hand before
+  re-opening, and the `ALTMIN` line is also checked against the captured
+  console output as a second source.
+- **Altitude-sampling artifact in the density cross-check (vacuum check
+  #1).** The check compared the atmosphere table's density *at* each
+  target altitude (10/40/80 km) against the single nearest *printed*
+  row's density — but POST2 only prints rows at whatever altitude the
+  trajectory happens to be at each integration step, not at round-km
+  marks. On the real run this left a ~486 m gap at the 40 km mark, and
+  since density falls off fast with altitude, that gap alone produced a
+  ~5.6% apparent mismatch (just over the 5% tolerance) even though 10 km
+  and 80 km both matched to <1% and the atmosphere was clearly active
+  (nonzero dynamic pressure). **Fixed**: interpolates the printed density
+  between the two rows bracketing each target altitude instead of using
+  the nearest single row, so the comparison is like-for-like at the same
+  altitude on both sides.
 
 ## Previous status: UNBLOCKED (pipeline-side) — needs a real run on Windows
 
@@ -298,21 +331,32 @@ just the single verification case, and marks a run's `status` as
 `vacuum_check_failed` rather than `ok` if any fails.
 
 **Results of the actual single-test-case verification** (`rigid_d4.5_m900`,
-first real run, after the `bnkpc` fix): ran to completion via the `ALTMIN`
+after the `bnkpc` fix and the three parsing/status bugs above): **PASSED —
+`status: ok`** in `phase0_summary.csv`. Ran to completion via the `ALTMIN`
 safety net at the intended handoff altitude, heat shield separated
 beforehand at Mach 0.7 as designed, chute-deploy event fired at Mach 1.7.
-Handoff relative velocity 85.6 m/s vs. MSL's reference 78.9 m/s (~8%
-high — plausible given the placeholder chute CD table, see below).
-Checks 1/2/3/5 (atmosphere active, decelerates, Mars gravity, within
-table range) are implemented and run automatically on every scenario via
-`batch_runner.py`; check 4 (wind active) is still not implemented (no
-confirmed wind output variable name yet). Exact pass/fail values and the
-touchdown-proximity comparison (Gale Crater -4.59°/137.44° E) were not
-re-derived from the raw printed numbers in this pass — re-run
-`batch_runner.py --only rigid_d4.5_m900` and check `phase0_summary.csv`'s
-`vacuum_check_*` columns directly once the regex fix above lands, since
-that run was previously mis-filed as `post2_reported_errors` and never
-reached the vacuum-check evaluation.
+
+| Metric | Value |
+|---|---|
+| `status` | `ok` |
+| `post2_termination_mode` | `terminated_abnormally` (expected — the `ALTMIN` safety-net path, see above) |
+| `ballistic_coefficient_kg_m2` | 140.85 (vs. MSL's published ~145 kg/m², ~3% off) |
+| `peak_deceleration_g` | 10.10 |
+| `peak_dynamic_pressure_pa` | 13,518.9 |
+| `handoff_gdalt_m` | -2055.01 (matches the 1.7 km-above-Gale-surface target) |
+| `handoff_velocity_relative_mps` | 85.57 (vs. MSL's reference 78.9 m/s, ~8% high) |
+| `handoff_mach` | 0.350 |
+| `vacuum_check_atmosphere_active` | **True** (density cross-match at 10/40/80 km all <1% error after the interpolation fix above) |
+| `vacuum_check_decelerates` | True |
+| `vacuum_check_mars_gravity` | True |
+| `vacuum_check_within_table_range` | True |
+| `vacuum_check_wind_active_CHECKED` | False — **still not implemented** (no confirmed wind output variable name yet) |
+
+The ~8% handoff-velocity gap and ~3% ballistic-coefficient gap are both
+within the uncertainty this project already flagged (placeholder chute CD
+table, digitization tolerance) — not a sign of a remaining bug. The
+touchdown-proximity comparison (Gale Crater -4.59°/137.44° E) has not been
+separately computed yet.
 
 ## How to run (once un-blocked)
 
