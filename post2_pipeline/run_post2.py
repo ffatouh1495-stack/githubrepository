@@ -15,6 +15,7 @@ writes extra files (e.g. "profil") into whatever directory it's run from,
 and the spec requires that files from different runs never collide.
 """
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -79,9 +80,18 @@ def run_post2(scenario_id: str, inp_path: str, out_path: str, cwd: str,
     warnings = errors = termination_mode = None
     altmin_triggered = False
     combined = proc.stdout + proc.stderr
+
+    # out_path is relative to `cwd` (the scenario's own work dir), NOT to
+    # this Python process's own cwd -- subprocess.run(cwd=cwd) only changes
+    # the *subprocess's* working directory, so this must be resolved by
+    # hand before re-opening the file here. (Bug found from a real run:
+    # without this, the re-open silently failed via OSError, out_text
+    # stayed None, and the ALTMIN check below never fired even though the
+    # .out file -- confirmed by hand -- genuinely contained it.)
+    out_path_abs = out_path if os.path.isabs(out_path) else os.path.join(cwd, out_path)
     out_text = None
     try:
-        with open(out_path, "r", errors="replace") as f:
+        with open(out_path_abs, "r", errors="replace") as f:
             out_text = f.read()
     except OSError:
         pass
@@ -91,7 +101,11 @@ def run_post2(scenario_id: str, inp_path: str, out_path: str, cwd: str,
         termination_mode = match.group(1).strip().lower().replace(" ", "_")
         warnings, errors = int(match.group(2)), int(match.group(3))
 
-    if out_text is not None and _ALTMIN_TERMINATION_RE.search(out_text):
+    # Check both the captured console output and the .out file itself --
+    # whichever one actually has it.
+    if _ALTMIN_TERMINATION_RE.search(combined) or (
+        out_text is not None and _ALTMIN_TERMINATION_RE.search(out_text)
+    ):
         altmin_triggered = True
 
     return Post2RunResult(
