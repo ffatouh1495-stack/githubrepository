@@ -27,7 +27,7 @@ SUMMARY_CSV_FIELDS = [
     "payload_mass_kg", "vehicle_mass_kg", "total_entry_mass_kg",
     "wind_speed_mps", "wind_direction_deg",
     "inp_path", "out_path", "log_path",
-    "post2_warnings", "post2_errors", "status", "error_message",
+    "post2_warnings", "post2_errors", "post2_termination_mode", "status", "error_message",
 
     "ballistic_coefficient_kg_m2",
     "peak_deceleration_g", "peak_dynamic_pressure_pa",
@@ -117,6 +117,7 @@ def run_one(design, diameter_m, payload_mass_kg, output_root, exe_path):
 
     row["post2_warnings"] = result.warnings
     row["post2_errors"] = result.errors
+    row["post2_termination_mode"] = result.termination_mode
 
     if not os.path.exists(work_out):
         row["status"] = "post2_no_output_file"

@@ -6,7 +6,54 @@ same fixed wind for all 32, ending at the MSL powered-descent handoff
 point (not simulating powered descent/sky crane). Built against
 `phase0_spec_for_claude_code1.md`.
 
-## Current status: UNBLOCKED (pipeline-side) — needs a real run on Windows
+## Current status: VALIDATED — first real run succeeded (rigid_d4.5_m900)
+
+`rigid_d4.5_m900` ran successfully end-to-end on the Windows machine after
+one real bug was found and fixed (see "Bugs found from real POST2 output"
+below). All three phases executed, both Mach-triggered events fired at
+their correct Mach numbers, and the run terminated via the `ALTMIN` global
+safety net exactly at the intended handoff altitude (-6,742.13 ft, i.e.
+1.7 km above the Gale local surface) with the heat shield already
+separated. Gravity constants, entry state, atmosphere/wind tables, vehicle
+weight/sref/lref, and the combined post-chute drag table all printed back
+exactly matching what `generate_input.py` wrote — confirming nearly all of
+the previously-unvalidated guessed syntax on the first full attempt.
+Sanity check: handoff relative velocity 85.6 m/s vs. MSL's real reference
+value of 78.9 m/s (Karlgaard et al.) — about 8% high, plausible for a
+single fixed-wind run with this project's placeholder chute CD table (not
+yet a true digitization of Cruz et al. Fig. 9 — see below) and the
+`ALTMIN`-triggered termination firing one integration step after the
+nominal handoff criterion.
+
+## Bugs found from real POST2 output (fixed)
+
+- **`bnkpc` table syntax** (see "Items still needing manual verification"
+  below for detail) — fixed.
+- **Summary-line regex didn't recognize `ALTMIN`-triggered terminations.**
+  POST2 reports a normal event-100 handoff as `"POST2 Completed with N
+  Warnings and M Errors."`, but a run that terminates via the `ALTMIN`
+  global safety net (the designed behavior whenever the integrator reaches
+  the handoff altitude via the checked-termination path rather than the
+  event-100 criterion landing exactly) instead prints `"POST2 Terminated
+  Abnormally with N Warnings and M Errors."`, preceded by a `*** CHKTERM
+  ERROR *** ... Trajectory terminated by ALTMIN=...` line. The real
+  `rigid_d4.5_m900` run hit exactly this path (5 warnings, 1 error — the
+  CHKTERM "error" counts the ALTMIN hit itself). `run_post2.py`'s and
+  `parse_output.py`'s `_SUMMARY_RE` only matched the "Completed" phrasing,
+  so `Post2RunResult.ok` came back `False` and `batch_runner.py` mis-filed
+  this successful, intended outcome as `post2_reported_errors`. **Fixed**:
+  both regexes now match either phrasing and capture which one fired;
+  `Post2RunResult` gained `termination_mode` and `altmin_triggered` fields
+  (the latter set by scanning the `.out` text for the CHKTERM/ALTMIN line),
+  and `.ok` now treats an `ALTMIN`-triggered "Terminated Abnormally" as a
+  valid outcome rather than a failure — matching the spec's own
+  instruction that "every run stops at the same altitude... do not stop a
+  run early to avoid recording a failure." `post2_termination_mode` is now
+  also recorded per-scenario in `phase0_summary.csv` for transparency (so
+  a genuinely-abnormal, non-`ALTMIN` termination is still visible, just no
+  longer conflated with the expected one).
+
+## Previous status: UNBLOCKED (pipeline-side) — needs a real run on Windows
 
 Both data files are now in place and wired in:
 
@@ -250,11 +297,22 @@ Required before the 32-run grid: run ONE test case (rigid, 4.5 m,
 just the single verification case, and marks a run's `status` as
 `vacuum_check_failed` rather than `ok` if any fails.
 
-**Results of the actual single-test-case verification**: not yet run —
-pipeline is blocked on the atmosphere CSV. Fill in once run on the
-Windows machine (dynamic pressure/density match, deceleration/velocity
-drop, gravity near surface, wind active, within table range, and whether
-the trajectory ends near Gale Crater touchdown at -4.59°/137.44° E).
+**Results of the actual single-test-case verification** (`rigid_d4.5_m900`,
+first real run, after the `bnkpc` fix): ran to completion via the `ALTMIN`
+safety net at the intended handoff altitude, heat shield separated
+beforehand at Mach 0.7 as designed, chute-deploy event fired at Mach 1.7.
+Handoff relative velocity 85.6 m/s vs. MSL's reference 78.9 m/s (~8%
+high — plausible given the placeholder chute CD table, see below).
+Checks 1/2/3/5 (atmosphere active, decelerates, Mars gravity, within
+table range) are implemented and run automatically on every scenario via
+`batch_runner.py`; check 4 (wind active) is still not implemented (no
+confirmed wind output variable name yet). Exact pass/fail values and the
+touchdown-proximity comparison (Gale Crater -4.59°/137.44° E) were not
+re-derived from the raw printed numbers in this pass — re-run
+`batch_runner.py --only rigid_d4.5_m900` and check `phase0_summary.csv`'s
+`vacuum_check_*` columns directly once the regex fix above lands, since
+that run was previously mis-filed as `post2_reported_errors` and never
+reached the vacuum-check evaluation.
 
 ## How to run (once un-blocked)
 

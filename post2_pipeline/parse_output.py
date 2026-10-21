@@ -25,7 +25,15 @@ import generate_input
 
 _TOKEN_RE = re.compile(r"\b([a-z][a-z0-9]*)\s+([+-]?\d+\.\d+[eE][+-]?\d+)")
 _PHASE_RE = re.compile(r"Begin Phase\s+([\d.]+)")
-_SUMMARY_RE = re.compile(r"POST2 Completed with (\d+) Warnings? and (\d+) Errors?", re.IGNORECASE)
+_SUMMARY_RE = re.compile(
+    r"POST2 (Completed|Terminated Abnormally) with (\d+) Warnings? and (\d+) Errors?",
+    re.IGNORECASE,
+)
+# See run_post2.py's matching comment: the ALTMIN global-safety-net handoff
+# termination prints "Terminated Abnormally" + this CHKTERM message rather
+# than "Completed" -- confirmed against a real successful run. It's the
+# designed outcome for the handoff event, not a genuine failure.
+_ALTMIN_TERMINATION_RE = re.compile(r"Trajectory terminated by ALTMIN=", re.IGNORECASE)
 
 PA_PER_LBFT2 = config.N_PER_LBF * config.FT2_PER_M2  # ~47.8803, precise (not the spec's rounded atm-CSV factor)
 
@@ -72,8 +80,13 @@ def _rows_with_phase(text: str) -> List[Dict]:
 def parse_summary(text: str) -> Dict[str, Optional[int]]:
     match = _SUMMARY_RE.search(text)
     if not match:
-        return {"warnings": None, "errors": None}
-    return {"warnings": int(match.group(1)), "errors": int(match.group(2))}
+        return {"warnings": None, "errors": None, "termination_mode": None, "altmin_triggered": False}
+    return {
+        "warnings": int(match.group(2)),
+        "errors": int(match.group(3)),
+        "termination_mode": match.group(1).strip().lower().replace(" ", "_"),
+        "altmin_triggered": bool(_ALTMIN_TERMINATION_RE.search(text)),
+    }
 
 
 def _sensed_accel_g(r: Dict) -> float:
@@ -265,8 +278,11 @@ def parse_metrics(text: str, diameter_m: float, payload_mass_kg: float) -> Dict:
         )
 
     vacuum_checks = run_vacuum_checks(rows)
+    summary = parse_summary(text)
 
     return {
+        "post2_termination_mode": summary["termination_mode"],
+        "post2_altmin_triggered": summary["altmin_triggered"],
         "payload_mass_kg": payload_mass_kg,
         "vehicle_mass_kg": config.FIXED_VEHICLE_MASS_KG,
         "total_entry_mass_kg": total_mass,
