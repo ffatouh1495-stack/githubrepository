@@ -78,6 +78,15 @@ J2_MARS = 1.96045e-3
 J3_MARS = J4_MARS = J5_MARS = J6_MARS = J7_MARS = J8_MARS = 0.0
 RE_GRAV_MARS_FT = RE_MARS_FT      # PENDING verify -- spec says "likely equal to RE"
 
+# Volumetric mean radius, used ONLY for the self-computed great-circle
+# downrange approximation in parse_output.py (POST2's own DWNRNG/CRRNG
+# output fields print as 0.0 in every row of a real run -- not actually
+# computed under this deck's configuration, so downrange is derived here
+# instead from the GCLAT/LONG printed at each step). This is a spherical
+# great-circle approximation, not a full oblate-ellipsoid geodesic -- fine
+# for Phase 0's purposes, but don't treat it as precision-geodesy.
+R_MARS_MEAN_FT = (2 * RE_MARS_FT + RP_MARS_FT) / 3.0
+
 # NPC(16) gravity-model option. NOT explicitly confirmed in the manual
 # quote the spec provided (unlike IOFLAG/atmosphere/wind) -- reusing
 # npc(16)=2 ("oblate planet model"), the flag validated against Earth in

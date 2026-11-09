@@ -462,6 +462,19 @@ post2_pipeline/
   digitization of the figure. Affects post-chute-deploy drag magnitude.
 - **Wind-active vacuum check (#4) is not implemented** — see "Items still
   needing manual verification."
+- **Downrange is self-computed, not POST2's own value.** POST2 prints
+  `DWNRNG`/`CRRNG` (downrange/crossrange) fields, but confirmed against a
+  real run: they read `0.0` at every single step, in a run that is
+  otherwise clearly moving (gdalt, long, gclat all change continuously) —
+  so POST2 isn't actually computing them under this deck's configuration
+  (no reference point/target set, or a flag not enabled; not investigated
+  further). Instead, `parse_output.py` computes a great-circle (haversine)
+  surface distance from the entry point to each key event's `(gclat,
+  long)`, using Mars's volumetric mean radius (`config.R_MARS_MEAN_FT`) —
+  a spherical approximation, not a full oblate-ellipsoid geodesic. Fields:
+  `chute_deploy_downrange_m`, `heat_shield_sep_downrange_m`,
+  `handoff_downrange_m`. Sanity-checked against a real run's entry/handoff
+  lat-long pair: ~650 km, a physically plausible EDL downrange distance.
 
 ## Required outputs → where they come from
 

@@ -36,14 +36,16 @@ SUMMARY_CSV_FIELDS = [
 
     "chute_deploy_time_s", "chute_deploy_altitude_m",
     "chute_deploy_altitude_above_surface_m", "chute_deploy_mach",
-    "chute_deploy_dynp_pa", "chute_deploy_velocity_relative_mps", "chute_opening_force_n",
+    "chute_deploy_dynp_pa", "chute_deploy_velocity_relative_mps",
+    "chute_deploy_downrange_m", "chute_opening_force_n",
 
     "heat_shield_separated", "heat_shield_sep_altitude_m",
     "heat_shield_sep_mach", "heat_shield_sep_velocity_relative_mps",
+    "heat_shield_sep_downrange_m",
 
     "handoff_time_s", "handoff_gdalt_m", "handoff_altitude_above_surface_m",
     "handoff_velocity_inertial_mps", "handoff_velocity_relative_mps",
-    "handoff_mach", "handoff_phase",
+    "handoff_mach", "handoff_phase", "handoff_downrange_m",
 
     "vacuum_check_atmosphere_active", "vacuum_check_decelerates",
     "vacuum_check_mars_gravity", "vacuum_check_wind_active_CHECKED",

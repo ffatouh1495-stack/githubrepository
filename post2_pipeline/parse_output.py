@@ -112,6 +112,19 @@ def _lbft2_to_pa(x: Optional[float]) -> Optional[float]:
     return None if x is None else x * PA_PER_LBFT2
 
 
+def _great_circle_m(lat1_deg: float, lon1_deg: float, lat2_deg: float, lon2_deg: float,
+                     radius_m: float) -> float:
+    """Haversine great-circle surface distance. Used for downrange (see
+    parse_metrics) since POST2's own DWNRNG/CRRNG print as 0.0 throughout
+    a real run -- not actually computed under this deck's configuration."""
+    lat1, lon1, lat2, lon2 = map(math.radians, (lat1_deg, lon1_deg, lat2_deg, lon2_deg))
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return radius_m * c
+
+
 def _atmosphere_cross_match() -> Dict:
     """Vacuum check #1's table cross-match: interpolate the loaded
     atmosphere table (English units, same as POST2's printed output under
@@ -328,6 +341,20 @@ def parse_metrics(text: str, diameter_m: float, payload_mass_kg: float) -> Dict:
     bnkang_values = [r["bnkang"] for r in rows if "bnkang" in r]
     max_abs_bnkang_deg = max((abs(v) for v in bnkang_values), default=None)
 
+    # Downrange (great-circle distance from the entry point), self-computed
+    # from GCLAT/LONG tracked at every step -- see _great_circle_m's
+    # docstring for why (POST2's own DWNRNG field prints 0.0 throughout).
+    entry_row = rows_by_time[0]
+    entry_gclat, entry_long = entry_row.get("gclat"), entry_row.get("long")
+
+    def _downrange_m(row):
+        if row is None or entry_gclat is None or entry_long is None:
+            return None
+        lat, lon = row.get("gclat"), row.get("long")
+        if lat is None or lon is None:
+            return None
+        return _great_circle_m(entry_gclat, entry_long, lat, lon, config.R_MARS_MEAN_FT * config.M_PER_FT)
+
     peak_dynp_pa = _lbft2_to_pa(max(r.get("dynp", 0.0) for r in rows))
 
     total_mass = generate_input.total_entry_mass_kg(payload_mass_kg)
@@ -372,6 +399,7 @@ def parse_metrics(text: str, diameter_m: float, payload_mass_kg: float) -> Dict:
         "handoff_velocity_relative_mps": _ft_to_m(handoff_row.get("velr")),
         "handoff_mach": handoff_row.get("mach"),
         "handoff_phase": handoff_row.get("_phase"),
+        "handoff_downrange_m": _downrange_m(handoff_row),
 
         "chute_deploy_time_s": deploy_row.get("time") if deploy_row else None,
         "chute_deploy_altitude_m": _ft_to_m(deploy_row.get("gdalt")) if deploy_row else None,
@@ -381,12 +409,14 @@ def parse_metrics(text: str, diameter_m: float, payload_mass_kg: float) -> Dict:
         "chute_deploy_mach": deploy_row.get("mach") if deploy_row else None,
         "chute_deploy_dynp_pa": _lbft2_to_pa(deploy_row.get("dynp")) if deploy_row else None,
         "chute_deploy_velocity_relative_mps": _ft_to_m(deploy_row.get("velr")) if deploy_row else None,
+        "chute_deploy_downrange_m": _downrange_m(deploy_row),
         "chute_opening_force_n": opening_force_n,
 
         "heat_shield_separated": heat_shield_separated,
         "heat_shield_sep_altitude_m": _ft_to_m(heatshield_row.get("gdalt")) if heatshield_row else None,
         "heat_shield_sep_mach": heatshield_row.get("mach") if heatshield_row else None,
         "heat_shield_sep_velocity_relative_mps": _ft_to_m(heatshield_row.get("velr")) if heatshield_row else None,
+        "heat_shield_sep_downrange_m": _downrange_m(heatshield_row),
 
         "vacuum_check_atmosphere_active": vacuum_checks["check1_atmosphere_active"]["pass"],
         "vacuum_check_decelerates": vacuum_checks["check2_decelerates_from_drag"]["pass"],
